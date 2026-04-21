@@ -41,6 +41,7 @@ export async function stravaApiRequestAllItems(
 	const returnData: IDataObject[] = [];
 	let page = 1;
 
+	// Safety guard to prevent infinite loops for misbehaving pagination responses.
 	while (page <= 1000) {
 		const pageQuery: IDataObject = {
 			...query,
@@ -69,10 +70,10 @@ export async function stravaApiRequestAllItems(
 }
 
 export async function stravaDownloadAsBinary(
-this: IExecuteFunctions,
-endpoint: string,
-fileName: string,
-mimeType: string,
+	this: IExecuteFunctions,
+	endpoint: string,
+	fileName: string,
+	mimeType: string,
 ): Promise<IBinaryData> {
 	const responseData = await stravaApiRequest.call(this, 'GET', endpoint, {
 		json: false,

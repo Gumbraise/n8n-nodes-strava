@@ -7,7 +7,7 @@ export class StravaOAuth2Api implements ICredentialType {
 
 	displayName = 'Strava OAuth2 API';
 
-	icon: Icon = { light: 'file:../icons/github.svg', dark: 'file:../icons/github.dark.svg' };
+	icon: Icon = { light: 'file:../icons/strava.svg', dark: 'file:../icons/strava.dark.svg' };
 
 	documentationUrl = 'https://developers.strava.com/docs';
 
@@ -35,10 +35,11 @@ export class StravaOAuth2Api implements ICredentialType {
 		{
 			displayName: 'Scope',
 			name: 'scope',
-			type: 'hidden',
+			type: 'string',
+			description:
+				'Space-separated scopes. Example: read activity:read_all activity:write profile:write',
 			// Swagger security entries use a non-standard `public` scope. Real Strava scopes are listed here.
-			default:
-				'read,read_all,profile:read_all,profile:write,activity:read,activity:read_all,activity:write',
+			default: 'read',
 		},
 		{
 			displayName: 'Authentication',
