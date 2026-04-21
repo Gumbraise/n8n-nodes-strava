@@ -32,11 +32,13 @@
 		"strict": true,
 		"credentials": [
 			"dist/credentials/GithubIssuesApi.credentials.js",
-			"dist/credentials/GithubIssuesOAuth2Api.credentials.js"
+			"dist/credentials/GithubIssuesOAuth2Api.credentials.js",
+			"dist/credentials/StravaOAuth2Api.credentials.js"
 		],
 		"nodes": [
 			"dist/nodes/GithubIssues/GithubIssues.node.js",
-			"dist/nodes/Example/Example.node.js"
+			"dist/nodes/Example/Example.node.js",
+			"dist/nodes/Strava/Strava.node.js"
 		]
 	},
 	"devDependencies": {

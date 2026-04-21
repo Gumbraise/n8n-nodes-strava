@@ -1,0 +1,18 @@
+{
+"node": "n8n-nodes-strava",
+"nodeVersion": "1.0",
+"codexVersion": "1.0",
+"categories": ["Development"],
+"resources": {
+"credentialDocumentation": [
+{
+"url": "https://developers.strava.com/docs"
+}
+],
+"primaryDocumentation": [
+{
+"url": "https://developers.strava.com/docs/reference"
+}
+]
+}
+}
