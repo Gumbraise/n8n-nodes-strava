@@ -10,12 +10,42 @@ import type {
 import { NodeApiError, NodeOperationError } from 'n8n-workflow';
 
 const STRAVA_WEB_BASE_URL = 'https://www.strava.com';
+const WRITE_METHODS: IHttpRequestMethods[] = ['POST', 'PUT', 'PATCH', 'DELETE'];
 
 interface StravaWebCredentials {
 	sessionCookie: string;
 	csrfToken?: string;
 	userAgent?: string;
 	acceptLanguage?: string;
+}
+
+/**
+ * Auto-fetches the Strava CSRF token from the dashboard page.
+ * Strava embeds it in every authenticated HTML page as:
+ *   <meta name="csrf-token" content="...">
+ */
+async function fetchCsrfToken(
+	context: IExecuteFunctions | IHookFunctions | IWebhookFunctions,
+	cookie: string,
+	userAgent: string,
+): Promise<string | undefined> {
+	try {
+		const html = (await context.helpers.httpRequest({
+			method: 'GET',
+			url: `${STRAVA_WEB_BASE_URL}/dashboard`,
+			headers: {
+				Cookie: cookie,
+				'User-Agent': userAgent,
+				Accept: 'text/html,application/xhtml+xml',
+			},
+			json: false,
+		})) as string;
+
+		const match = /<meta[^>]+name="csrf-token"[^>]+content="([^"]+)"/i.exec(html);
+		return match?.[1];
+	} catch {
+		return undefined;
+	}
 }
 
 /**
@@ -33,21 +63,31 @@ export async function stravaWebRequest(
 		'stravaWebSessionApi',
 	)) as unknown as StravaWebCredentials;
 
+	const userAgent = credentials.userAgent ?? 'Mozilla/5.0';
+
 	const headers: Record<string, string> = {
 		Accept: 'application/json, text/javascript, */*; q=0.01',
 		'X-Requested-With': 'XMLHttpRequest',
-		'User-Agent': credentials.userAgent ?? 'Mozilla/5.0',
+		'User-Agent': userAgent,
 		'Accept-Language': credentials.acceptLanguage ?? 'en-US,en;q=0.9,fr;q=0.8',
 		// Cookie value is set directly — never logged or included in errors
 		Cookie: credentials.sessionCookie,
 	};
 
-	if (credentials.csrfToken) {
-		headers['X-CSRF-Token'] = credentials.csrfToken;
+	// CSRF token is required for write operations.
+	// Use the credential value if provided; otherwise auto-fetch from the dashboard.
+	if (WRITE_METHODS.includes(method)) {
+		const csrfToken =
+			credentials.csrfToken ||
+			(await fetchCsrfToken(this, credentials.sessionCookie, userAgent));
+
+		if (csrfToken) {
+			headers['X-CSRF-Token'] = csrfToken;
+		}
 	}
 
 	const hasBody = Object.keys(body).length > 0;
-	if (hasBody && ['POST', 'PUT', 'PATCH'].includes(method)) {
+	if (hasBody && WRITE_METHODS.includes(method)) {
 		headers['Content-Type'] = 'application/json';
 	}
 
@@ -86,7 +126,7 @@ export async function stravaWebRequest(
 		if (statusCode === 403) {
 			throw new NodeOperationError(
 				this.getNode(),
-				'Strava returned 403 Forbidden. Your CSRF token may be missing or invalid. Check the csrfToken field in the Strava Web Session credential.',
+				'Strava returned 403 Forbidden. The CSRF token could not be fetched or is invalid. Try refreshing your session cookie.',
 			);
 		}
 		throw new NodeApiError(this.getNode(), {
