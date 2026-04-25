@@ -176,9 +176,49 @@ return [returnData];
 }
 }
 
+function executeBuildFollowRequestData(
+this: IExecuteFunctions,
+itemIndex: number,
+): IDataObject[] {
+const mode = this.getNodeParameter('mode', itemIndex) as string;
+const followerId = this.getNodeParameter('followerId', itemIndex) as number;
+
+if (!followerId) {
+throw new NodeOperationError(this.getNode(), 'Follower ID is required.', { itemIndex });
+}
+
+if (mode === 'follow') {
+const followingId = this.getNodeParameter('followingId', itemIndex) as number;
+if (!followingId) {
+throw new NodeOperationError(this.getNode(), 'Following ID is required for follow mode.', { itemIndex });
+}
+return [
+{
+method: 'POST',
+endpoint: buildFollowUrl(followerId),
+body: { follow: { following_id: followingId, follower_id: followerId } },
+},
+];
+}
+
+if (mode === 'unfollow') {
+const followId = this.getNodeParameter('followId', itemIndex) as number;
+if (!followId) {
+throw new NodeOperationError(this.getNode(), 'Follow ID is required for unfollow mode.', { itemIndex });
+}
+return [
+{
+method: 'DELETE',
+endpoint: buildUnfollowUrl(followerId, followId),
+},
+];
+}
+
+throw new NodeOperationError(this.getNode(), `Unknown mode: "${mode}"`, { itemIndex });
+}
+
 /** Extracts inner text from an HTML anchor tag, e.g. <a href="...">text</a> → "text" */
-function extractAnchorText(html: string): string {
-const match = /<a[^>]*>([^<]*)<\/a>/i.exec(html);
+function extractAnchorText(html: string): string {const match = /<a[^>]*>([^<]*)<\/a>/i.exec(html);
 return match ? match[1].trim() : html;
 }
 
@@ -187,7 +227,11 @@ this: IExecuteFunctions,
 operation: string,
 itemIndex: number,
 ): Promise<IDataObject[]> {
-// ── Read operations ────────────────────────────────────────────────────────
+// ── Read / utility operations ──────────────────────────────────────────────
+if (operation === 'buildFollowRequestData') {
+return executeBuildFollowRequestData.call(this, itemIndex);
+}
+
 if (operation === 'getActivityKudosExtended' || operation === 'getActivityGroupAthletes') {
 const activityId = this.getNodeParameter('activityId', itemIndex) as number;
 if (!activityId) {

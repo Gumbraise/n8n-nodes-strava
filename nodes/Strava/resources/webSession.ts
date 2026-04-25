@@ -9,6 +9,13 @@ export const webSessionOperations: INodeProperties[] = [
 		displayOptions: { show: { resource: ['webSession'] } },
 		options: [
 			{
+				name: 'Build Follow Request Data',
+				value: 'buildFollowRequestData',
+				description:
+					'Prepare follow or unfollow request data without calling Strava. Useful for debugging or building inputs for the Follow/Unfollow Athlete operations.',
+				action: 'Build follow request data',
+			},
+			{
 				name: 'Follow Athlete',
 				value: 'followAthleteWeb',
 				description:
@@ -95,6 +102,65 @@ export const webSessionFields: INodeProperties[] = [
 		},
 		description:
 			'Whether to return one n8n item per athlete. When off, the full response is returned as one item.',
+	},
+
+	// ── buildFollowRequestData ────────────────────────────────────────────────
+	{
+		displayName: 'Mode',
+		name: 'mode',
+		type: 'options',
+		noDataExpression: true,
+		required: true,
+		default: 'follow',
+		options: [
+			{ name: 'Follow', value: 'follow' },
+			{ name: 'Unfollow', value: 'unfollow' },
+		],
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['buildFollowRequestData'] },
+		},
+		description: 'Whether to build a follow or unfollow request payload',
+	},
+	{
+		displayName: 'Follower ID',
+		name: 'followerId',
+		type: 'number',
+		required: true,
+		default: 0,
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['buildFollowRequestData'] },
+		},
+		description: 'Authenticated athlete ID — usually your own Strava account ID',
+	},
+	{
+		displayName: 'Following ID',
+		name: 'followingId',
+		type: 'number',
+		required: true,
+		default: 0,
+		displayOptions: {
+			show: {
+				resource: ['webSession'],
+				operation: ['buildFollowRequestData'],
+				mode: ['follow'],
+			},
+		},
+		description: 'ID of the athlete to follow',
+	},
+	{
+		displayName: 'Follow ID',
+		name: 'followId',
+		type: 'number',
+		required: true,
+		default: 0,
+		displayOptions: {
+			show: {
+				resource: ['webSession'],
+				operation: ['buildFollowRequestData'],
+				mode: ['unfollow'],
+			},
+		},
+		description: 'Follow relationship ID returned by the Follow Athlete operation (<code>follow_id</code> field)',
 	},
 
 	// ── kudoActivityWeb ───────────────────────────────────────────────────────
