@@ -32,7 +32,7 @@ icon: 'file:strava.svg',
 group: ['input'],
 version: 1,
 subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
-description: 'Consume Strava API',
+description: 'Consume the official Strava API v3. Also includes undocumented Web Session operations (marked ⚠️) that use a browser session cookie and may break without notice.',
 defaults: {
 name: 'Strava',
 },
@@ -218,7 +218,8 @@ throw new NodeOperationError(this.getNode(), `Unknown mode: "${mode}"`, { itemIn
 }
 
 /** Extracts inner text from an HTML anchor tag, e.g. <a href="...">text</a> → "text" */
-function extractAnchorText(html: string): string {const match = /<a[^>]*>([^<]*)<\/a>/i.exec(html);
+function extractAnchorText(html: string): string {
+const match = /<a[^>]*>([^<]*)<\/a>/i.exec(html);
 return match ? match[1].trim() : html;
 }
 
