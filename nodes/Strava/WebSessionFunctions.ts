@@ -7,7 +7,7 @@ import type {
 	IWebhookFunctions,
 	JsonObject,
 } from 'n8n-workflow';
-import { NodeApiError } from 'n8n-workflow';
+import { NodeApiError, NodeOperationError } from 'n8n-workflow';
 
 const STRAVA_WEB_BASE_URL = 'https://www.strava.com';
 
@@ -56,7 +56,8 @@ export async function stravaWebRequest(
 		baseURL: STRAVA_WEB_BASE_URL,
 		url: endpoint,
 		headers,
-		json: true,
+		// Use json:false to receive raw string so we can detect HTML login-redirect pages
+		json: false,
 	};
 
 	if (hasBody) {
@@ -67,8 +68,9 @@ export async function stravaWebRequest(
 		options.qs = qs;
 	}
 
+	let raw: string;
 	try {
-		return (await this.helpers.httpRequest(options)) as IDataObject | IDataObject[] | string;
+		raw = (await this.helpers.httpRequest(options)) as string;
 	} catch (error) {
 		// Sanitize: never expose headers (which contain the session cookie) in the error
 		const err = error as { message?: string; statusCode?: number };
@@ -77,4 +79,25 @@ export async function stravaWebRequest(
 			httpCode: String(err.statusCode ?? 'unknown'),
 		} as JsonObject);
 	}
+
+	// Strava redirects to an HTML login page when the session cookie is expired
+	// or invalid — surface a clear error rather than a confusing JSON parse failure.
+	if (typeof raw === 'string' && raw.trimStart().startsWith('<')) {
+		throw new NodeOperationError(
+			this.getNode(),
+			'Strava returned HTML instead of JSON. Your session cookie may be expired or invalid.',
+		);
+	}
+
+	if (typeof raw === 'string') {
+		try {
+			return JSON.parse(raw) as IDataObject | IDataObject[];
+		} catch {
+			// Return plain text if the body is not JSON-parseable
+			return raw;
+		}
+	}
+
+	return raw as unknown as IDataObject | IDataObject[];
 }
+
