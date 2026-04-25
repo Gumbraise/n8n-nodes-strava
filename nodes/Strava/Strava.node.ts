@@ -336,9 +336,27 @@ responseData = await stravaApiRequest.call(this, 'GET', `/uploads/${uploadId}`);
 } else if (operation === 'createUpload') {
 const binaryPropertyName = this.getNodeParameter('binaryPropertyName', i) as string;
 const data_type = this.getNodeParameter('data_type', i) as string;
+if (!data_type) {
+throw new NodeOperationError(this.getNode(), 'Data Type is required to upload an activity file', { itemIndex: i });
+}
 const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
-const binaryMeta = this.helpers.assertBinaryData(i, binaryPropertyName);
-const fileBuffer = await this.helpers.getBinaryDataBuffer(i, binaryPropertyName);
+
+let binaryMeta;
+let fileBuffer: Buffer;
+try {
+binaryMeta = this.helpers.assertBinaryData(i, binaryPropertyName);
+fileBuffer = await this.helpers.getBinaryDataBuffer(i, binaryPropertyName);
+} catch {
+throw new NodeOperationError(
+this.getNode(),
+`No binary data found in field "${binaryPropertyName}". Connect a node that outputs a file (e.g. Read/Write Files from Disk) and make sure the binary property name matches.`,
+{ itemIndex: i },
+);
+}
+if (!fileBuffer || fileBuffer.length === 0) {
+throw new NodeOperationError(this.getNode(), `The file in binary field "${binaryPropertyName}" is empty`, { itemIndex: i });
+}
+
 const fd = new FormData();
 fd.append(
 'file',
@@ -352,6 +370,7 @@ if (additionalFields.description) fd.append('description', String(additionalFiel
 if (additionalFields.external_id) fd.append('external_id', String(additionalFields.external_id));
 if (additionalFields.trainer !== undefined) fd.append('trainer', additionalFields.trainer ? '1' : '0');
 if (additionalFields.commute !== undefined) fd.append('commute', additionalFields.commute ? '1' : '0');
+
 responseData = (await this.helpers.httpRequestWithAuthentication.call(
 this,
 'stravaOAuth2Api',
