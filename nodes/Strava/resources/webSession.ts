@@ -112,7 +112,7 @@ export const webSessionFields: INodeProperties[] = [
 		displayOptions: {
 			show: { resource: ['webSession'], operation: ['followAthleteWeb'] },
 		},
-		description: 'ID of the athlete to follow.',
+		description: 'ID of the athlete to follow',
 	},
 	{
 		displayName: 'Follow ID',
@@ -123,8 +123,7 @@ export const webSessionFields: INodeProperties[] = [
 		displayOptions: {
 			show: { resource: ['webSession'], operation: ['unfollowAthleteWeb'] },
 		},
-		description:
-			'Follow relationship ID returned by the Follow Athlete operation (<code>follow_id</code> field).',
+		description: 'Follow relationship ID returned by the Follow Athlete operation (<code>follow_id</code> field)',
 	},
 	{
 		displayName: 'Confirm Follow Action',
@@ -171,7 +170,7 @@ export const webSessionFields: INodeProperties[] = [
 			'Whether to return the computed method, URL, and body without sending the request. No credentials are included in the output.',
 	},
 	{
-		displayName: 'Request Delay (ms)',
+		displayName: 'Request Delay (Ms)',
 		name: 'requestDelayMs',
 		type: 'number',
 		default: 1000,
