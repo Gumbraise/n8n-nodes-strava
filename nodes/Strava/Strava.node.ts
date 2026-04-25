@@ -147,13 +147,13 @@ const sport_type = this.getNodeParameter('sport_type', i) as string;
 const start_date_local = this.getNodeParameter('start_date_local', i) as string;
 const elapsed_time = this.getNodeParameter('elapsed_time', i) as number;
 const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
-const body: IDataObject = { name, sport_type, start_date_local, elapsed_time };
-if (additionalFields.type) body.type = additionalFields.type;
-if (additionalFields.description) body.description = additionalFields.description;
-if (additionalFields.distance) body.distance = additionalFields.distance;
-if (additionalFields.trainer !== undefined) body.trainer = additionalFields.trainer ? 1 : 0;
-if (additionalFields.commute !== undefined) body.commute = additionalFields.commute ? 1 : 0;
-responseData = await stravaApiRequest.call(this, 'POST', '/activities', body);
+const activityForm: IDataObject = { name, sport_type, start_date_local, elapsed_time };
+if (additionalFields.type) activityForm.type = additionalFields.type;
+if (additionalFields.description) activityForm.description = additionalFields.description;
+if (additionalFields.distance) activityForm.distance = additionalFields.distance;
+if (additionalFields.trainer !== undefined) activityForm.trainer = additionalFields.trainer ? 1 : 0;
+if (additionalFields.commute !== undefined) activityForm.commute = additionalFields.commute ? 1 : 0;
+responseData = await stravaApiRequest.call(this, 'POST', '/activities', {}, {}, activityForm);
 } else if (operation === 'getActivityById') {
 const activityId = this.getNodeParameter('activityId', i) as number;
 const include_all_efforts = this.getNodeParameter('include_all_efforts', i) as boolean;
@@ -213,15 +213,19 @@ responseData = await stravaApiRequest.call(this, 'GET', '/segments/starred', {},
 } else if (operation === 'starSegment') {
 const segmentId = this.getNodeParameter('segmentId', i) as number;
 const starred = this.getNodeParameter('starred', i) as boolean;
-responseData = await stravaApiRequest.call(this, 'PUT', `/segments/${segmentId}/starred`, { starred });
+responseData = await stravaApiRequest.call(this, 'PUT', `/segments/${segmentId}/starred`, {}, {}, { starred: starred });
 } else if (operation === 'exploreSegments') {
 const bounds = this.getNodeParameter('bounds', i) as string;
+if (!bounds || bounds.trim() === '') {
+throw new NodeOperationError(this.getNode(), 'bounds is required for Explore Segments', { itemIndex: i });
+}
 const additionalFilters = this.getNodeParameter('additionalFilters', i) as IDataObject;
 const qs: IDataObject = { bounds };
 if (additionalFilters.activity_type) qs.activity_type = additionalFilters.activity_type;
 if (additionalFilters.min_cat !== undefined) qs.min_cat = additionalFilters.min_cat;
 if (additionalFilters.max_cat !== undefined) qs.max_cat = additionalFilters.max_cat;
-responseData = await stravaApiRequest.call(this, 'GET', '/segments/explore', {}, qs);
+const exploreResponse = await stravaApiRequest.call(this, 'GET', '/segments/explore', {}, qs) as IDataObject;
+responseData = (exploreResponse.segments as IDataObject[]) ?? [];
 }
 } else if (resource === 'segmentEffort') {
 if (operation === 'getEffortsBySegmentId') {
@@ -348,17 +352,23 @@ body: fd,
 } else if (resource === 'stream') {
 if (operation === 'getActivityStreams') {
 const activityId = this.getNodeParameter('activityId', i) as number;
-const keys = (this.getNodeParameter('keys', i) as string[]).join(',');
+const rawKeys = this.getNodeParameter('keys', i) as string[];
+if (!rawKeys || rawKeys.length === 0) throw new NodeOperationError(this.getNode(), 'At least one stream key must be selected', { itemIndex: i });
+const keys = rawKeys.join(',');
 const key_by_type = this.getNodeParameter('key_by_type', i) as boolean;
 responseData = await stravaApiRequest.call(this, 'GET', `/activities/${activityId}/streams`, {}, { keys, key_by_type });
 } else if (operation === 'getSegmentEffortStreams') {
 const segmentEffortId = this.getNodeParameter('segmentEffortId', i) as number;
-const keys = (this.getNodeParameter('keys', i) as string[]).join(',');
+const rawKeys = this.getNodeParameter('keys', i) as string[];
+if (!rawKeys || rawKeys.length === 0) throw new NodeOperationError(this.getNode(), 'At least one stream key must be selected', { itemIndex: i });
+const keys = rawKeys.join(',');
 const key_by_type = this.getNodeParameter('key_by_type', i) as boolean;
 responseData = await stravaApiRequest.call(this, 'GET', `/segment_efforts/${segmentEffortId}/streams`, {}, { keys, key_by_type });
 } else if (operation === 'getSegmentStreams') {
 const segmentId = this.getNodeParameter('segmentId', i) as number;
-const keys = (this.getNodeParameter('keys', i) as string[]).join(',');
+const rawKeys = this.getNodeParameter('keys', i) as string[];
+if (!rawKeys || rawKeys.length === 0) throw new NodeOperationError(this.getNode(), 'At least one stream key must be selected', { itemIndex: i });
+const keys = rawKeys.join(',');
 const key_by_type = this.getNodeParameter('key_by_type', i) as boolean;
 responseData = await stravaApiRequest.call(this, 'GET', `/segments/${segmentId}/streams`, {}, { keys, key_by_type });
 } else if (operation === 'getRouteStreams') {

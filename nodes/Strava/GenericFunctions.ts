@@ -17,6 +17,7 @@ method: IHttpRequestMethods,
 endpoint: string,
 body: IDataObject = {},
 qs: IDataObject = {},
+form: IDataObject = {},
 ): Promise<IDataObject | IDataObject[]> {
 const options: IHttpRequestOptions = {
 method,
@@ -25,7 +26,16 @@ url: endpoint,
 json: true,
 };
 
-if (Object.keys(body).length > 0) {
+if (Object.keys(form).length > 0) {
+// Strava expects application/x-www-form-urlencoded for formData endpoints
+const params = new URLSearchParams();
+for (const [key, value] of Object.entries(form)) {
+params.append(key, String(value));
+}
+options.body = params.toString();
+options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+options.json = false;
+} else if (Object.keys(body).length > 0) {
 options.body = body;
 }
 
@@ -44,6 +54,15 @@ options.qs = { ...qs, client_id: credentials.clientId, client_secret: credential
 options.body = { ...body, client_id: credentials.clientId, client_secret: credentials.clientSecret };
 }
 return (await this.helpers.httpRequest(options)) as IDataObject | IDataObject[];
+}
+
+if (Object.keys(form).length > 0) {
+const raw = (await this.helpers.httpRequestWithAuthentication.call(
+this,
+'stravaOAuth2Api',
+options,
+)) as string;
+return JSON.parse(raw) as IDataObject | IDataObject[];
 }
 
 return (await this.helpers.httpRequestWithAuthentication.call(
