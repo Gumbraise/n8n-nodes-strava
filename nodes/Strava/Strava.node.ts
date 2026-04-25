@@ -39,6 +39,15 @@ credentials: [
 name: 'stravaOAuth2Api',
 required: true,
 },
+{
+name: 'stravaWebSessionApi',
+required: false,
+displayOptions: {
+show: {
+resource: ['webSession'],
+},
+},
+},
 ],
 properties: [
 {
@@ -56,6 +65,7 @@ options: [
 { name: 'Segment Effort', value: 'segmentEffort' },
 { name: 'Stream', value: 'stream' },
 { name: 'Upload', value: 'upload' },
+{ name: 'Web Session (Undocumented)', value: 'webSession' },
 ],
 default: 'athlete',
 },
