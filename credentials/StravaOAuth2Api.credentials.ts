@@ -37,7 +37,7 @@ export class StravaOAuth2Api implements ICredentialType {
 			displayName: 'Authentication',
 			name: 'authentication',
 			type: 'hidden',
-			default: 'header',
+			default: 'body',
 		},
 	];
 }
