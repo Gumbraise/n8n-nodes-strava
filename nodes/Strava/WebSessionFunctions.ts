@@ -100,7 +100,7 @@ export async function stravaWebRequest(
 	if (typeof raw === 'string' && raw.trimStart().startsWith('<')) {
 		throw new NodeOperationError(
 			this.getNode(),
-			'Strava returned HTML instead of JSON. Your session cookie may be expired or invalid.',
+			'Strava returned HTML instead of JSON. Your session cookie may be expired, invalid, or missing CSRF protection.',
 		);
 	}
 
