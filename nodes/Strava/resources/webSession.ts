@@ -30,6 +30,13 @@ export const webSessionOperations: INodeProperties[] = [
 				action: 'Get activity kudos extended',
 			},
 			{
+				name: 'Give Activity Kudo',
+				value: 'kudoActivityWeb',
+				description:
+					'[Undocumented] Give a kudo to a Strava activity via a web session. This route may break without notice. Requires confirmAction to be enabled.',
+				action: 'Give activity kudo',
+			},
+			{
 				name: 'Unfollow Athlete',
 				value: 'unfollowAthleteWeb',
 				description:
@@ -88,6 +95,62 @@ export const webSessionFields: INodeProperties[] = [
 		},
 		description:
 			'Whether to return one n8n item per athlete. When off, the full response is returned as one item.',
+	},
+
+	// ── kudoActivityWeb ───────────────────────────────────────────────────────
+	{
+		displayName: 'Activity ID',
+		name: 'activityId',
+		type: 'number',
+		required: true,
+		default: 0,
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['kudoActivityWeb'] },
+		},
+		description: 'The numeric ID of the Strava activity to give a kudo to',
+	},
+	{
+		displayName: 'Confirm Kudo Action',
+		name: 'confirmAction',
+		type: 'boolean',
+		required: true,
+		default: false,
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['kudoActivityWeb'] },
+		},
+		description:
+			'Whether to actually send the kudo request. Must be enabled — acts as a safety gate. ⚠️ This is an undocumented Strava web route and may break without notice',
+	},
+	{
+		displayName: 'Prevent Bulk Actions',
+		name: 'preventBulk',
+		type: 'boolean',
+		default: true,
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['kudoActivityWeb'] },
+		},
+		description: 'Whether to block execution when more than one input item is passed. Disable only if you intentionally want to process multiple items.',
+	},
+	{
+		displayName: 'Dry Run',
+		name: 'dryRun',
+		type: 'boolean',
+		default: false,
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['kudoActivityWeb'] },
+		},
+		description: 'Whether to return the computed method and URL without sending the request. No credentials are included in the output.',
+	},
+	{
+		displayName: 'Request Delay (Ms)',
+		name: 'requestDelayMs',
+		type: 'number',
+		default: 1000,
+		typeOptions: { minValue: 0 },
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['kudoActivityWeb'] },
+		},
+		description: 'Milliseconds to wait between kudo requests when processing multiple items. Minimum: 0.',
 	},
 
 	// ── followAthleteWeb ──────────────────────────────────────────────────────
