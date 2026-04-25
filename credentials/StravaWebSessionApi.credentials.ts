@@ -36,11 +36,7 @@ export class StravaWebSessionApi implements ICredentialType {
 	test: ICredentialTestRequest = {
 		request: {
 			baseURL: 'https://www.strava.com',
-			url: '/athlete/current_user',
-			headers: {
-				Accept: 'application/json, text/javascript, */*; q=0.01',
-				'X-Requested-With': 'XMLHttpRequest',
-			},
+			url: '/settings/profile',
 		},
 	};
 
