@@ -127,8 +127,243 @@ const operation = this.getNodeParameter('operation', i) as string;
 
 let responseData: IDataObject | IDataObject[] = {};
 
-if (resource === 'athlete' && operation === 'getLoggedInAthlete') {
+if (resource === 'athlete') {
+if (operation === 'getLoggedInAthlete') {
 responseData = await stravaApiRequest.call(this, 'GET', '/athlete');
+} else if (operation === 'getStats') {
+const athleteId = this.getNodeParameter('athleteId', i) as number;
+responseData = await stravaApiRequest.call(this, 'GET', `/athletes/${athleteId}/stats`);
+} else if (operation === 'updateLoggedInAthlete') {
+const weight = this.getNodeParameter('weight', i) as number;
+responseData = await stravaApiRequest.call(this, 'PUT', '/athlete', { weight });
+} else if (operation === 'getLoggedInAthleteZones') {
+responseData = await stravaApiRequest.call(this, 'GET', '/athlete/zones');
+}
+} else if (resource === 'activity') {
+if (operation === 'createActivity') {
+const name = this.getNodeParameter('name', i) as string;
+const sport_type = this.getNodeParameter('sport_type', i) as string;
+const start_date_local = this.getNodeParameter('start_date_local', i) as string;
+const elapsed_time = this.getNodeParameter('elapsed_time', i) as number;
+const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
+const body: IDataObject = { name, sport_type, start_date_local, elapsed_time };
+if (additionalFields.type) body.type = additionalFields.type;
+if (additionalFields.description) body.description = additionalFields.description;
+if (additionalFields.distance) body.distance = additionalFields.distance;
+if (additionalFields.trainer !== undefined) body.trainer = additionalFields.trainer ? 1 : 0;
+if (additionalFields.commute !== undefined) body.commute = additionalFields.commute ? 1 : 0;
+responseData = await stravaApiRequest.call(this, 'POST', '/activities', body);
+} else if (operation === 'getActivityById') {
+const activityId = this.getNodeParameter('activityId', i) as number;
+const include_all_efforts = this.getNodeParameter('include_all_efforts', i) as boolean;
+responseData = await stravaApiRequest.call(this, 'GET', `/activities/${activityId}`, {}, { include_all_efforts });
+} else if (operation === 'updateActivityById') {
+const activityId = this.getNodeParameter('activityId', i) as number;
+const fields = this.getNodeParameter('body', i) as IDataObject;
+const body: IDataObject = {};
+if (fields.name) body.name = fields.name;
+if (fields.sport_type) body.sport_type = fields.sport_type;
+if (fields.description) body.description = fields.description;
+if (fields.gear_id) body.gear_id = fields.gear_id;
+if (fields.trainer !== undefined) body.trainer = fields.trainer;
+if (fields.commute !== undefined) body.commute = fields.commute;
+if (fields.hide_from_home !== undefined) body.hide_from_home = fields.hide_from_home;
+if (fields.type) body.type = fields.type;
+responseData = await stravaApiRequest.call(this, 'PUT', `/activities/${activityId}`, body);
+} else if (operation === 'getLoggedInAthleteActivities') {
+const filters = this.getNodeParameter('filters', i) as IDataObject;
+const qs: IDataObject = {};
+if (filters.before) qs.before = filters.before;
+if (filters.after) qs.after = filters.after;
+if (filters.page) qs.page = filters.page;
+if (filters.per_page) qs.per_page = filters.per_page;
+responseData = await stravaApiRequest.call(this, 'GET', '/athlete/activities', {}, qs);
+} else if (operation === 'getLapsByActivityId') {
+const activityId = this.getNodeParameter('activityId', i) as number;
+responseData = await stravaApiRequest.call(this, 'GET', `/activities/${activityId}/laps`);
+} else if (operation === 'getZonesByActivityId') {
+const activityId = this.getNodeParameter('activityId', i) as number;
+responseData = await stravaApiRequest.call(this, 'GET', `/activities/${activityId}/zones`);
+} else if (operation === 'getCommentsByActivityId') {
+const activityId = this.getNodeParameter('activityId', i) as number;
+const pagination = this.getNodeParameter('pagination', i) as IDataObject;
+const qs: IDataObject = {};
+if (pagination.page_size) qs.page_size = pagination.page_size;
+if (pagination.after_cursor) qs.after_cursor = pagination.after_cursor;
+responseData = await stravaApiRequest.call(this, 'GET', `/activities/${activityId}/comments`, {}, qs);
+} else if (operation === 'getKudoersByActivityId') {
+const activityId = this.getNodeParameter('activityId', i) as number;
+const pagination = this.getNodeParameter('pagination', i) as IDataObject;
+const qs: IDataObject = {};
+if (pagination.page) qs.page = pagination.page;
+if (pagination.per_page) qs.per_page = pagination.per_page;
+responseData = await stravaApiRequest.call(this, 'GET', `/activities/${activityId}/kudos`, {}, qs);
+}
+} else if (resource === 'segment') {
+if (operation === 'getSegmentById') {
+const segmentId = this.getNodeParameter('segmentId', i) as number;
+responseData = await stravaApiRequest.call(this, 'GET', `/segments/${segmentId}`);
+} else if (operation === 'getLoggedInAthleteStarredSegments') {
+const pagination = this.getNodeParameter('pagination', i) as IDataObject;
+const qs: IDataObject = {};
+if (pagination.page) qs.page = pagination.page;
+if (pagination.per_page) qs.per_page = pagination.per_page;
+responseData = await stravaApiRequest.call(this, 'GET', '/segments/starred', {}, qs);
+} else if (operation === 'starSegment') {
+const segmentId = this.getNodeParameter('segmentId', i) as number;
+const starred = this.getNodeParameter('starred', i) as boolean;
+responseData = await stravaApiRequest.call(this, 'PUT', `/segments/${segmentId}/starred`, { starred });
+} else if (operation === 'exploreSegments') {
+const bounds = this.getNodeParameter('bounds', i) as string;
+const additionalFilters = this.getNodeParameter('additionalFilters', i) as IDataObject;
+const qs: IDataObject = { bounds };
+if (additionalFilters.activity_type) qs.activity_type = additionalFilters.activity_type;
+if (additionalFilters.min_cat !== undefined) qs.min_cat = additionalFilters.min_cat;
+if (additionalFilters.max_cat !== undefined) qs.max_cat = additionalFilters.max_cat;
+responseData = await stravaApiRequest.call(this, 'GET', '/segments/explore', {}, qs);
+}
+} else if (resource === 'segmentEffort') {
+if (operation === 'getEffortsBySegmentId') {
+const segmentId = this.getNodeParameter('segmentId', i) as number;
+const filters = this.getNodeParameter('filters', i) as IDataObject;
+const qs: IDataObject = { segment_id: segmentId };
+if (filters.start_date_local) qs.start_date_local = filters.start_date_local;
+if (filters.end_date_local) qs.end_date_local = filters.end_date_local;
+if (filters.per_page) qs.per_page = filters.per_page;
+responseData = await stravaApiRequest.call(this, 'GET', '/segment_efforts', {}, qs);
+} else if (operation === 'getSegmentEffortById') {
+const segmentEffortId = this.getNodeParameter('segmentEffortId', i) as number;
+responseData = await stravaApiRequest.call(this, 'GET', `/segment_efforts/${segmentEffortId}`);
+}
+} else if (resource === 'club') {
+if (operation === 'getClubById') {
+const clubId = this.getNodeParameter('clubId', i) as number;
+responseData = await stravaApiRequest.call(this, 'GET', `/clubs/${clubId}`);
+} else if (operation === 'getClubMembersById') {
+const clubId = this.getNodeParameter('clubId', i) as number;
+const pagination = this.getNodeParameter('pagination', i) as IDataObject;
+const qs: IDataObject = {};
+if (pagination.page) qs.page = pagination.page;
+if (pagination.per_page) qs.per_page = pagination.per_page;
+responseData = await stravaApiRequest.call(this, 'GET', `/clubs/${clubId}/members`, {}, qs);
+} else if (operation === 'getClubAdminsById') {
+const clubId = this.getNodeParameter('clubId', i) as number;
+const pagination = this.getNodeParameter('pagination', i) as IDataObject;
+const qs: IDataObject = {};
+if (pagination.page) qs.page = pagination.page;
+if (pagination.per_page) qs.per_page = pagination.per_page;
+responseData = await stravaApiRequest.call(this, 'GET', `/clubs/${clubId}/admins`, {}, qs);
+} else if (operation === 'getClubActivitiesById') {
+const clubId = this.getNodeParameter('clubId', i) as number;
+const pagination = this.getNodeParameter('pagination', i) as IDataObject;
+const qs: IDataObject = {};
+if (pagination.page) qs.page = pagination.page;
+if (pagination.per_page) qs.per_page = pagination.per_page;
+responseData = await stravaApiRequest.call(this, 'GET', `/clubs/${clubId}/activities`, {}, qs);
+} else if (operation === 'getLoggedInAthleteClubs') {
+const pagination = this.getNodeParameter('pagination', i) as IDataObject;
+const qs: IDataObject = {};
+if (pagination.page) qs.page = pagination.page;
+if (pagination.per_page) qs.per_page = pagination.per_page;
+responseData = await stravaApiRequest.call(this, 'GET', '/athlete/clubs', {}, qs);
+}
+} else if (resource === 'gear') {
+if (operation === 'getGearById') {
+const gearId = this.getNodeParameter('gearId', i) as string;
+responseData = await stravaApiRequest.call(this, 'GET', `/gear/${gearId}`);
+}
+} else if (resource === 'route') {
+if (operation === 'getRouteById') {
+const routeId = this.getNodeParameter('routeId', i) as number;
+responseData = await stravaApiRequest.call(this, 'GET', `/routes/${routeId}`);
+} else if (operation === 'getRoutesByAthleteId') {
+const athleteId = this.getNodeParameter('athleteId', i) as number;
+const pagination = this.getNodeParameter('pagination', i) as IDataObject;
+const qs: IDataObject = {};
+if (pagination.page) qs.page = pagination.page;
+if (pagination.per_page) qs.per_page = pagination.per_page;
+responseData = await stravaApiRequest.call(this, 'GET', `/athletes/${athleteId}/routes`, {}, qs);
+} else if (operation === 'getRouteAsGPX' || operation === 'getRouteAsTCX') {
+const routeId = this.getNodeParameter('routeId', i) as number;
+const binaryPropertyName = this.getNodeParameter('binaryPropertyName', i) as string;
+const isGpx = operation === 'getRouteAsGPX';
+const exportPath = isGpx ? 'export_gpx' : 'export_tcx';
+const fileName = isGpx ? `route-${routeId}.gpx` : `route-${routeId}.tcx`;
+const mimeType = isGpx ? 'application/gpx+xml' : 'application/tcx+xml';
+const fileResponse = await this.helpers.httpRequestWithAuthentication.call(
+this,
+'stravaOAuth2Api',
+{
+method: 'GET',
+url: `https://www.strava.com/api/v3/routes/${routeId}/${exportPath}`,
+encoding: 'arraybuffer',
+},
+);
+const binaryData = await this.helpers.prepareBinaryData(
+Buffer.from(fileResponse as ArrayBuffer),
+fileName,
+mimeType,
+);
+returnData.push({
+json: {},
+binary: { [binaryPropertyName]: binaryData },
+pairedItem: { item: i },
+});
+continue;
+}
+} else if (resource === 'upload') {
+if (operation === 'getUploadById') {
+const uploadId = this.getNodeParameter('uploadId', i) as number;
+responseData = await stravaApiRequest.call(this, 'GET', `/uploads/${uploadId}`);
+} else if (operation === 'createUpload') {
+const binaryPropertyName = this.getNodeParameter('binaryPropertyName', i) as string;
+const data_type = this.getNodeParameter('data_type', i) as string;
+const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
+const binaryMeta = this.helpers.assertBinaryData(i, binaryPropertyName);
+const fileBuffer = await this.helpers.getBinaryDataBuffer(i, binaryPropertyName);
+const fd = new FormData();
+fd.append(
+'file',
+new Blob([fileBuffer], { type: binaryMeta.mimeType ?? 'application/octet-stream' }),
+binaryMeta.fileName ?? `upload.${data_type.replace('.gz', '')}`,
+);
+fd.append('data_type', data_type);
+if (additionalFields.activity_type) fd.append('activity_type', String(additionalFields.activity_type));
+if (additionalFields.name) fd.append('name', String(additionalFields.name));
+if (additionalFields.description) fd.append('description', String(additionalFields.description));
+if (additionalFields.external_id) fd.append('external_id', String(additionalFields.external_id));
+if (additionalFields.trainer !== undefined) fd.append('trainer', additionalFields.trainer ? '1' : '0');
+if (additionalFields.commute !== undefined) fd.append('commute', additionalFields.commute ? '1' : '0');
+responseData = (await this.helpers.httpRequestWithAuthentication.call(
+this,
+'stravaOAuth2Api',
+{
+method: 'POST',
+url: 'https://www.strava.com/api/v3/uploads',
+body: fd,
+},
+)) as IDataObject;
+}
+} else if (resource === 'stream') {
+if (operation === 'getActivityStreams') {
+const activityId = this.getNodeParameter('activityId', i) as number;
+const keys = (this.getNodeParameter('keys', i) as string[]).join(',');
+const key_by_type = this.getNodeParameter('key_by_type', i) as boolean;
+responseData = await stravaApiRequest.call(this, 'GET', `/activities/${activityId}/streams`, {}, { keys, key_by_type });
+} else if (operation === 'getSegmentEffortStreams') {
+const segmentEffortId = this.getNodeParameter('segmentEffortId', i) as number;
+const keys = (this.getNodeParameter('keys', i) as string[]).join(',');
+const key_by_type = this.getNodeParameter('key_by_type', i) as boolean;
+responseData = await stravaApiRequest.call(this, 'GET', `/segment_efforts/${segmentEffortId}/streams`, {}, { keys, key_by_type });
+} else if (operation === 'getSegmentStreams') {
+const segmentId = this.getNodeParameter('segmentId', i) as number;
+const keys = (this.getNodeParameter('keys', i) as string[]).join(',');
+const key_by_type = this.getNodeParameter('key_by_type', i) as boolean;
+responseData = await stravaApiRequest.call(this, 'GET', `/segments/${segmentId}/streams`, {}, { keys, key_by_type });
+} else if (operation === 'getRouteStreams') {
+const routeId = this.getNodeParameter('routeId', i) as number;
+responseData = await stravaApiRequest.call(this, 'GET', `/routes/${routeId}/streams`);
+}
 } else if (resource === 'webSession') {
 responseData = await executeWebSessionOperation.call(this, operation, i);
 } else {

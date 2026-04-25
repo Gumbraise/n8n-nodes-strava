@@ -1,4 +1,4 @@
-import type {
+﻿import type {
 	IDataObject,
 	IExecuteFunctions,
 	IHookFunctions,
@@ -34,7 +34,7 @@ async function fetchCsrfToken(
 			method: 'GET',
 			url: `${STRAVA_WEB_BASE_URL}/dashboard`,
 			headers: {
-				Cookie: cookie.replace(/[^\x09\x20-\x7E]/g, '').trim(),
+				Cookie: cookie.replace(/[^\t\x20-\x7E]/g, '').trim(),
 				'User-Agent': userAgent,
 				Accept: 'text/html,application/xhtml+xml',
 			},
@@ -72,7 +72,7 @@ export async function stravaWebRequest(
 		'Accept-Language': credentials.acceptLanguage ?? 'en-US,en;q=0.9,fr;q=0.8',
 		// Keep only ASCII printable chars (0x20-0x7E) plus tab (0x09) — undici rejects anything else.
 		// Cookie value is never logged or included in errors.
-		Cookie: credentials.sessionCookie.replace(/[^\x09\x20-\x7E]/g, '').trim(),
+		Cookie: credentials.sessionCookie.replace(/[^\t\x20-\x7E]/g, '').trim(),
 	};
 
 	// CSRF token is required for write operations.
