@@ -9,6 +9,13 @@ export const webSessionOperations: INodeProperties[] = [
 		displayOptions: { show: { resource: ['webSession'] } },
 		options: [
 			{
+				name: 'Follow Athlete',
+				value: 'followAthleteWeb',
+				description:
+					'[Undocumented] Follow an athlete using a Strava web session. Requires confirmAction to be enabled.',
+				action: 'Follow athlete',
+			},
+			{
 				name: 'Get Activity Group Athletes',
 				value: 'getActivityGroupAthletes',
 				description:
@@ -21,6 +28,13 @@ export const webSessionOperations: INodeProperties[] = [
 				description:
 					'[Undocumented] Return extended kudos data including athlete profiles. Requires a valid Strava web session cookie.',
 				action: 'Get activity kudos extended',
+			},
+			{
+				name: 'Unfollow Athlete',
+				value: 'unfollowAthleteWeb',
+				description:
+					'[Undocumented] Unfollow an athlete using a Strava web session. Requires confirmAction to be enabled.',
+				action: 'Unfollow athlete',
 			},
 		],
 		default: 'getActivityKudosExtended',
@@ -74,5 +88,98 @@ export const webSessionFields: INodeProperties[] = [
 		},
 		description:
 			'Whether to return one n8n item per athlete. When off, the full response is returned as one item.',
+	},
+
+	// ── followAthleteWeb ──────────────────────────────────────────────────────
+	{
+		displayName: 'Follower ID',
+		name: 'followerId',
+		type: 'number',
+		required: true,
+		default: 0,
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['followAthleteWeb', 'unfollowAthleteWeb'] },
+		},
+		description:
+			'Authenticated athlete ID — usually your own Strava account ID. This is the first path segment in the Strava follow URL.',
+	},
+	{
+		displayName: 'Following ID',
+		name: 'followingId',
+		type: 'number',
+		required: true,
+		default: 0,
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['followAthleteWeb'] },
+		},
+		description: 'ID of the athlete to follow.',
+	},
+	{
+		displayName: 'Follow ID',
+		name: 'followId',
+		type: 'number',
+		required: true,
+		default: 0,
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['unfollowAthleteWeb'] },
+		},
+		description:
+			'Follow relationship ID returned by the Follow Athlete operation (<code>follow_id</code> field).',
+	},
+	{
+		displayName: 'Confirm Follow Action',
+		name: 'confirmAction',
+		type: 'boolean',
+		required: true,
+		default: false,
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['followAthleteWeb'] },
+		},
+		description: 'Whether to actually send the follow request. Must be enabled — acts as a safety gate.',
+	},
+	{
+		displayName: 'Confirm Unfollow Action',
+		name: 'confirmAction',
+		type: 'boolean',
+		required: true,
+		default: false,
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['unfollowAthleteWeb'] },
+		},
+		description: 'Whether to actually send the unfollow request. Must be enabled — acts as a safety gate.',
+	},
+	{
+		displayName: 'Prevent Bulk Actions',
+		name: 'preventBulk',
+		type: 'boolean',
+		default: true,
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['followAthleteWeb', 'unfollowAthleteWeb'] },
+		},
+		description:
+			'Whether to block execution when more than one input item is passed. Disable only if you intentionally want to process multiple items.',
+	},
+	{
+		displayName: 'Dry Run',
+		name: 'dryRun',
+		type: 'boolean',
+		default: false,
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['followAthleteWeb', 'unfollowAthleteWeb'] },
+		},
+		description:
+			'Whether to return the computed method, URL, and body without sending the request. No credentials are included in the output.',
+	},
+	{
+		displayName: 'Request Delay (ms)',
+		name: 'requestDelayMs',
+		type: 'number',
+		default: 1000,
+		typeOptions: { minValue: 0 },
+		displayOptions: {
+			show: { resource: ['webSession'], operation: ['followAthleteWeb', 'unfollowAthleteWeb'] },
+		},
+		description:
+			'Milliseconds to wait between write requests when processing multiple items. Minimum: 0.',
 	},
 ];
