@@ -72,11 +72,26 @@ export async function stravaWebRequest(
 	try {
 		raw = (await this.helpers.httpRequest(options)) as string;
 	} catch (error) {
-		// Sanitize: never expose headers (which contain the session cookie) in the error
-		const err = error as { message?: string; statusCode?: number };
+		// Sanitize: never expose headers (which contain the session cookie) in the error.
+		// Map common HTTP status codes to actionable messages.
+		const err = error as { message?: string; statusCode?: number; response?: { statusCode?: number } };
+		const statusCode = err.statusCode ?? err.response?.statusCode;
+
+		if (statusCode === 401) {
+			throw new NodeOperationError(
+				this.getNode(),
+				'Strava returned 401 Unauthorized. Your session cookie may be expired or invalid. Please refresh the Strava Web Session credential.',
+			);
+		}
+		if (statusCode === 403) {
+			throw new NodeOperationError(
+				this.getNode(),
+				'Strava returned 403 Forbidden. Your CSRF token may be missing or invalid. Check the csrfToken field in the Strava Web Session credential.',
+			);
+		}
 		throw new NodeApiError(this.getNode(), {
 			message: err.message ?? 'Strava web request failed',
-			httpCode: String(err.statusCode ?? 'unknown'),
+			httpCode: String(statusCode ?? 'unknown'),
 		} as JsonObject);
 	}
 
@@ -87,6 +102,11 @@ export async function stravaWebRequest(
 			this.getNode(),
 			'Strava returned HTML instead of JSON. Your session cookie may be expired or invalid.',
 		);
+	}
+
+	// Empty body (e.g. 204 No Content)
+	if (typeof raw === 'string' && raw.trim() === '') {
+		return {};
 	}
 
 	if (typeof raw === 'string') {
