@@ -54,7 +54,21 @@ export const routeFields: INodeProperties[] = [
 		description: 'The identifier of the route',
 	},
 
-	// ── getRouteAsGPX / getRouteAsTCX – binary output property name ──────────
+	// ── getRouteAsGPX / getRouteAsTCX – binary toggle + property name ─────────
+	{
+		displayName: 'Download as Binary',
+		name: 'downloadAsBinary',
+		type: 'boolean',
+		default: true,
+		displayOptions: {
+			show: {
+				resource: ['route'],
+				operation: ['getRouteAsGPX', 'getRouteAsTCX'],
+			},
+		},
+		description:
+			'Whether to output the file as binary data. When disabled, the raw XML string is returned in the JSON output.',
+	},
 	{
 		displayName: 'Put Output File in Field',
 		name: 'binaryPropertyName',
@@ -65,6 +79,7 @@ export const routeFields: INodeProperties[] = [
 			show: {
 				resource: ['route'],
 				operation: ['getRouteAsGPX', 'getRouteAsTCX'],
+				downloadAsBinary: [true],
 			},
 		},
 		description: 'The name of the output binary field that will contain the file data',

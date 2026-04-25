@@ -290,11 +290,13 @@ if (pagination.per_page) qs.per_page = pagination.per_page;
 responseData = await stravaApiRequest.call(this, 'GET', `/athletes/${athleteId}/routes`, {}, qs);
 } else if (operation === 'getRouteAsGPX' || operation === 'getRouteAsTCX') {
 const routeId = this.getNodeParameter('routeId', i) as number;
-const binaryPropertyName = this.getNodeParameter('binaryPropertyName', i) as string;
+const downloadAsBinary = this.getNodeParameter('downloadAsBinary', i) as boolean;
 const isGpx = operation === 'getRouteAsGPX';
 const exportPath = isGpx ? 'export_gpx' : 'export_tcx';
-const fileName = isGpx ? `route-${routeId}.gpx` : `route-${routeId}.tcx`;
+const fileName = isGpx ? `strava-route-${routeId}.gpx` : `strava-route-${routeId}.tcx`;
 const mimeType = isGpx ? 'application/gpx+xml' : 'application/tcx+xml';
+if (downloadAsBinary) {
+const binaryPropertyName = this.getNodeParameter('binaryPropertyName', i) as string;
 const fileResponse = await this.helpers.httpRequestWithAuthentication.call(
 this,
 'stravaOAuth2Api',
@@ -315,6 +317,17 @@ binary: { [binaryPropertyName]: binaryData },
 pairedItem: { item: i },
 });
 continue;
+} else {
+const xmlResponse = await this.helpers.httpRequestWithAuthentication.call(
+this,
+'stravaOAuth2Api',
+{
+method: 'GET',
+url: `https://www.strava.com/api/v3/routes/${routeId}/${exportPath}`,
+},
+);
+responseData = { fileName, mimeType, data: xmlResponse } as IDataObject;
+}
 }
 } else if (resource === 'upload') {
 if (operation === 'getUploadById') {
