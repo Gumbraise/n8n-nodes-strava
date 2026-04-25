@@ -22,7 +22,7 @@ import { uploadFields, uploadOperations } from './resources/upload';
 import { webSessionFields, webSessionOperations } from './resources/webSession';
 
 /** Write operations that carry safety guards (bulk-check, delay, dry-run). */
-const WEB_WRITE_OPERATIONS = ['followAthleteWeb', 'unfollowAthleteWeb'] as const;
+const WEB_WRITE_OPERATIONS = ['followAthleteWeb', 'kudoActivityWeb', 'unfollowAthleteWeb'] as const;
 
 export class Strava implements INodeType {
 description: INodeTypeDescription = {
@@ -238,6 +238,10 @@ if (operation === 'followAthleteWeb') {
 return executeFollowAthlete.call(this, itemIndex);
 }
 
+if (operation === 'kudoActivityWeb') {
+return executeKudoActivity.call(this, itemIndex);
+}
+
 if (operation === 'unfollowAthleteWeb') {
 return executeUnfollowAthlete.call(this, itemIndex);
 }
@@ -274,6 +278,38 @@ return [{ dryRun: true, method: 'POST', url: `https://www.strava.com${url}`, bod
 }
 
 const response = (await stravaWebRequest.call(this, 'POST', url, body as IDataObject)) as IDataObject;
+return [response];
+}
+
+async function executeKudoActivity(
+this: IExecuteFunctions,
+itemIndex: number,
+): Promise<IDataObject[]> {
+const activityId = this.getNodeParameter('activityId', itemIndex) as number;
+const confirmAction = this.getNodeParameter('confirmAction', itemIndex, false) as boolean;
+const dryRun = this.getNodeParameter('dryRun', itemIndex, false) as boolean;
+
+if (!confirmAction) {
+throw new NodeOperationError(
+this.getNode(),
+'Confirm Kudo Action must be enabled to send the kudo request.',
+{ itemIndex },
+);
+}
+
+const url = `/feed/activity/${activityId}/kudo`;
+
+if (dryRun) {
+return [{ dryRun: true, method: 'POST', url: `https://www.strava.com${url}`, body: {} }];
+}
+
+const response = (await stravaWebRequest.call(this, 'POST', url)) as IDataObject;
+
+// Strava may return an empty body (200/204) for a successful kudo
+if (Object.keys(response).length === 0) {
+return [{ success: true, activityId, operation: 'kudoActivityWeb' }];
+}
+
 return [response];
 }
 
