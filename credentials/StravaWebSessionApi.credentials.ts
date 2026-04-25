@@ -1,4 +1,9 @@
-import type { ICredentialType, INodeProperties } from 'n8n-workflow';
+import type {
+	IAuthenticateGeneric,
+	ICredentialTestRequest,
+	ICredentialType,
+	INodeProperties,
+} from 'n8n-workflow';
 
 /**
  * Strava Web Session credential.
@@ -10,13 +15,30 @@ import type { ICredentialType, INodeProperties } from 'n8n-workflow';
  */
 export class StravaWebSessionApi implements ICredentialType {
 	name = 'stravaWebSessionApi';
-	displayName = 'Strava Web Session (Undocumented)';
+	displayName = 'Strava Web Session API';
 	icon = {
 		light: 'file:../nodes/Strava/strava.svg',
 		dark: 'file:../nodes/Strava/strava.svg',
 	} as const;
 
 	documentationUrl = 'https://developers.strava.com';
+
+	authenticate: IAuthenticateGeneric = {
+		type: 'generic',
+		properties: {
+			headers: {
+				Cookie: '={{$credentials.sessionCookie}}',
+				'X-Requested-With': 'XMLHttpRequest',
+			},
+		},
+	};
+
+	test: ICredentialTestRequest = {
+		request: {
+			baseURL: 'https://www.strava.com',
+			url: '/athlete/current_user',
+		},
+	};
 
 	properties: INodeProperties[] = [
 		{
