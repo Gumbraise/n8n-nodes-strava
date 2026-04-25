@@ -31,7 +31,8 @@
 		"n8nNodesApiVersion": 1,
 		"strict": true,
 		"credentials": [
-			"dist/credentials/StravaOAuth2Api.credentials.js"
+			"dist/credentials/StravaOAuth2Api.credentials.js",
+			"dist/credentials/StravaWebSessionApi.credentials.js"
 		],
 		"nodes": [
 			"dist/nodes/Strava/Strava.node.js",
