@@ -135,7 +135,8 @@ const athleteId = this.getNodeParameter('athleteId', i) as number;
 responseData = await stravaApiRequest.call(this, 'GET', `/athletes/${athleteId}/stats`);
 } else if (operation === 'updateLoggedInAthlete') {
 const weight = this.getNodeParameter('weight', i) as number;
-responseData = await stravaApiRequest.call(this, 'PUT', '/athlete', { weight });
+// Strava PUT /athlete expects weight as a query parameter, not a JSON body
+responseData = await stravaApiRequest.call(this, 'PUT', '/athlete', {}, { weight });
 } else if (operation === 'getLoggedInAthleteZones') {
 responseData = await stravaApiRequest.call(this, 'GET', '/athlete/zones');
 }
