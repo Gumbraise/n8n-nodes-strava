@@ -1,4 +1,4 @@
-import type { ICredentialType, INodeProperties } from 'n8n-workflow';
+import type { ICredentialTestRequest, ICredentialType, INodeProperties } from 'n8n-workflow';
 
 export class StravaOAuth2Api implements ICredentialType {
 	name = 'stravaOAuth2Api';
@@ -6,6 +6,14 @@ export class StravaOAuth2Api implements ICredentialType {
 	extends = ['oAuth2Api'];
 	icon = { light: 'file:../nodes/Strava/strava.svg', dark: 'file:../nodes/Strava/strava.svg' } as const;
 	documentationUrl = 'https://developers.strava.com/docs/authentication/';
+
+	test: ICredentialTestRequest = {
+		request: {
+			baseURL: 'https://www.strava.com/api/v3',
+			method: 'GET',
+			url: '/athlete',
+		},
+	};
 
 	properties: INodeProperties[] = [
 		{

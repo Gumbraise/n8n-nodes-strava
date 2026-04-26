@@ -28,6 +28,8 @@ export class StravaWebSessionApi implements ICredentialType {
 		properties: {
 			headers: {
 				Cookie: '={{$credentials.sessionCookie}}',
+				'User-Agent': '={{$credentials.userAgent}}',
+				'Accept-Language': '={{$credentials.acceptLanguage}}',
 				'X-Requested-With': 'XMLHttpRequest',
 			},
 		},
@@ -36,8 +38,25 @@ export class StravaWebSessionApi implements ICredentialType {
 	test: ICredentialTestRequest = {
 		request: {
 			baseURL: 'https://www.strava.com',
+			method: 'GET',
 			url: '/settings/profile',
+			disableFollowRedirect: true,
+			json: false,
+			headers: {
+				Accept: 'text/html,application/xhtml+xml',
+			},
 		},
+		rules: [
+			{
+				type: 'responseCode',
+				properties: {
+					value: 200,
+					message: 'Session cookie accepted.',
+				},
+				errorMessage:
+					'Strava did not accept this session cookie. Copy the full Cookie header from an authenticated Strava browser request and try again.',
+			},
+		],
 	};
 
 	properties: INodeProperties[] = [
