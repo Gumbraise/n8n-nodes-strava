@@ -44,6 +44,13 @@ export const webSessionOperations: INodeProperties[] = [
 				action: 'Give activity kudo',
 			},
 			{
+				name: 'Test Session',
+				value: 'testSession',
+				description:
+					'Test whether the configured Strava web session cookie can access an authenticated Strava page',
+				action: 'Test web session',
+			},
+			{
 				name: 'Unfollow Athlete',
 				value: 'unfollowAthleteWeb',
 				description:
