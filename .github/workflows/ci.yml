@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - master
+      - main
 
 # Cancel in-progress runs for the same branch/PR to avoid wasting CI minutes.
 concurrency:
