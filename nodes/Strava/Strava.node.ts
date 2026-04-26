@@ -1,15 +1,26 @@
 import type {
-IDataObject,
-IExecuteFunctions,
-INodeExecutionData,
-INodeType,
-INodeTypeDescription,
-JsonObject,
+	IDataObject,
+	IExecuteFunctions,
+	INodeExecutionData,
+	INodeType,
+	INodeTypeDescription,
+	JsonObject,
 } from 'n8n-workflow';
-import { NodeApiError, NodeConnectionTypes, NodeOperationError, sleep } from 'n8n-workflow';
+import {
+	NodeApiError,
+	NodeConnectionTypes,
+	NodeOperationError,
+	sleep,
+} from 'n8n-workflow';
 
-import { stravaApiRequest } from './GenericFunctions';
-import { stravaWebRequest } from './WebSessionFunctions';
+import type { StravaApiRequestOptions } from './GenericFunctions';
+import {
+	buildEndpoint,
+	compactObject,
+	stravaApiRequest,
+	toCsvValue,
+} from './GenericFunctions';
+import { stravaWebRequest, testStravaWebSession } from './WebSessionFunctions';
 import { activityFields, activityOperations } from './resources/activity';
 import { athleteFields, athleteOperations } from './resources/athlete';
 import { clubFields, clubOperations } from './resources/club';
@@ -21,660 +32,1265 @@ import { streamFields, streamOperations } from './resources/stream';
 import { uploadFields, uploadOperations } from './resources/upload';
 import { webSessionFields, webSessionOperations } from './resources/webSession';
 
-/** Write operations that carry safety guards (bulk-check, delay, dry-run). */
 const WEB_WRITE_OPERATIONS = ['followAthleteWeb', 'kudoActivityWeb', 'unfollowAthleteWeb'] as const;
 
-export class Strava implements INodeType {
-description: INodeTypeDescription = {
-displayName: 'Strava',
-name: 'strava',
-icon: 'file:strava.svg',
-group: ['input'],
-version: 1,
-subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
-description: 'Consume the official Strava API v3. Also includes undocumented Web Session operations (marked ⚠️) that use a browser session cookie and may break without notice.',
-defaults: {
-name: 'Strava',
-},
-usableAsTool: true,
-inputs: [NodeConnectionTypes.Main],
-outputs: [NodeConnectionTypes.Main],
-credentials: [
-{
-name: 'stravaOAuth2Api',
-required: true,
-},
-{
-name: 'stravaWebSessionApi',
-required: false,
-displayOptions: {
-show: {
-resource: ['webSession'],
-},
-},
-},
-],
-properties: [
-{
-displayName: 'Resource',
-name: 'resource',
-type: 'options',
-noDataExpression: true,
-options: [
-{ name: 'Activity', value: 'activity' },
-{ name: 'Athlete', value: 'athlete' },
-{ name: 'Club', value: 'club' },
-{ name: 'Gear', value: 'gear' },
-{ name: 'Route', value: 'route' },
-{ name: 'Segment', value: 'segment' },
-{ name: 'Segment Effort', value: 'segmentEffort' },
-{ name: 'Stream', value: 'stream' },
-{ name: 'Upload', value: 'upload' },
-{ name: 'Web Session (Undocumented)', value: 'webSession' },
-],
-default: 'athlete',
-},
-...activityOperations,
-...activityFields,
-...athleteOperations,
-...athleteFields,
-...clubOperations,
-...clubFields,
-...gearOperations,
-...gearFields,
-...routeOperations,
-...routeFields,
-...segmentOperations,
-...segmentFields,
-...segmentEffortOperations,
-...segmentEffortFields,
-...streamOperations,
-...streamFields,
-...uploadOperations,
-...uploadFields,
-...webSessionOperations,
-...webSessionFields,
-],
+type JsonResponse = IDataObject | IDataObject[];
+
+type OperationExecutionResult =
+	| {
+			type: 'items';
+			items: INodeExecutionData[];
+	  }
+	| {
+			type: 'json';
+			data: JsonResponse;
+	  };
+
+type ResourceOperationHandler = (
+	this: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
+) => Promise<OperationExecutionResult>;
+
+const RESOURCE_HANDLERS: Record<string, ResourceOperationHandler> = {
+	activity: executeActivityOperation,
+	athlete: executeAthleteOperation,
+	club: executeClubOperation,
+	gear: executeGearOperation,
+	route: executeRouteOperation,
+	segment: executeSegmentOperation,
+	segmentEffort: executeSegmentEffortOperation,
+	stream: executeStreamOperation,
+	upload: executeUploadOperation,
+	webSession: executeWebSessionResourceOperation,
 };
 
-async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
-const items = this.getInputData();
-const returnData: INodeExecutionData[] = [];
+export class Strava implements INodeType {
+	description: INodeTypeDescription = {
+		displayName: 'Strava',
+		name: 'strava',
+		icon: 'file:strava.svg',
+		group: ['input'],
+		version: 1,
+		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
+		description:
+			'Consume the official Strava API v3. Also includes undocumented Web Session operations (marked ⚠️) that use a browser session cookie and may break without notice.',
+		defaults: {
+			name: 'Strava',
+		},
+		usableAsTool: true,
+		inputs: [NodeConnectionTypes.Main],
+		outputs: [NodeConnectionTypes.Main],
+		credentials: [
+			{
+				name: 'stravaOAuth2Api',
+				required: true,
+				displayOptions: {
+					hide: {
+						resource: ['webSession'],
+					},
+				},
+			},
+			{
+				name: 'stravaWebSessionApi',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['webSession'],
+					},
+				},
+			},
+		],
+		properties: [
+			{
+				displayName: 'Resource',
+				name: 'resource',
+				type: 'options',
+				noDataExpression: true,
+				options: [
+					{ name: 'Activity', value: 'activity' },
+					{ name: 'Athlete', value: 'athlete' },
+					{ name: 'Club', value: 'club' },
+					{ name: 'Gear', value: 'gear' },
+					{ name: 'Route', value: 'route' },
+					{ name: 'Segment', value: 'segment' },
+					{ name: 'Segment Effort', value: 'segmentEffort' },
+					{ name: 'Stream', value: 'stream' },
+					{ name: 'Upload', value: 'upload' },
+					{ name: 'Web Session (Undocumented)', value: 'webSession' },
+				],
+				default: 'athlete',
+			},
+			...activityOperations,
+			...activityFields,
+			...athleteOperations,
+			...athleteFields,
+			...clubOperations,
+			...clubFields,
+			...gearOperations,
+			...gearFields,
+			...routeOperations,
+			...routeFields,
+			...segmentOperations,
+			...segmentFields,
+			...segmentEffortOperations,
+			...segmentEffortFields,
+			...streamOperations,
+			...streamFields,
+			...uploadOperations,
+			...uploadFields,
+			...webSessionOperations,
+			...webSessionFields,
+		],
+	};
 
-// Pre-flight bulk guard: reject multiple items for write operations when
-// preventBulk is enabled — checked once before any request is sent.
-if (items.length > 1) {
-const resource0 = this.getNodeParameter('resource', 0) as string;
-const operation0 = this.getNodeParameter('operation', 0) as string;
-if (
-resource0 === 'webSession' &&
-(WEB_WRITE_OPERATIONS as readonly string[]).includes(operation0)
-) {
-const preventBulk = this.getNodeParameter('preventBulk', 0, true) as boolean;
-if (preventBulk) {
-throw new NodeOperationError(
-this.getNode(),
-`Bulk write is disabled for "${operation0}". Set "Prevent Bulk Actions" to false to process multiple items.`,
-);
-}
-}
-}
+	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+		const items = this.getInputData();
+		const returnData: INodeExecutionData[] = [];
 
-for (let i = 0; i < items.length; i++) {
-try {
-const resource = this.getNodeParameter('resource', i) as string;
-const operation = this.getNodeParameter('operation', i) as string;
+		await assertBulkWebWriteAllowed.call(this, items.length);
 
-let responseData: IDataObject | IDataObject[] = {};
+		for (let i = 0; i < items.length; i++) {
+			try {
+				const resource = this.getNodeParameter('resource', i) as string;
+				const operation = this.getNodeParameter('operation', i) as string;
+				const handler = RESOURCE_HANDLERS[resource];
 
-if (resource === 'athlete') {
-if (operation === 'getLoggedInAthlete') {
-responseData = await stravaApiRequest.call(this, 'GET', '/athlete');
-} else if (operation === 'getStats') {
-const athleteId = this.getNodeParameter('athleteId', i) as number;
-responseData = await stravaApiRequest.call(this, 'GET', `/athletes/${athleteId}/stats`);
-} else if (operation === 'updateLoggedInAthlete') {
-const weight = this.getNodeParameter('weight', i) as number;
-// Strava PUT /athlete expects weight as a query parameter, not a JSON body
-responseData = await stravaApiRequest.call(this, 'PUT', '/athlete', {}, { weight });
-} else if (operation === 'getLoggedInAthleteZones') {
-responseData = await stravaApiRequest.call(this, 'GET', '/athlete/zones');
-}
-} else if (resource === 'activity') {
-if (operation === 'createActivity') {
-const name = this.getNodeParameter('name', i) as string;
-const sport_type = this.getNodeParameter('sport_type', i) as string;
-const start_date_local = this.getNodeParameter('start_date_local', i) as string;
-const elapsed_time = this.getNodeParameter('elapsed_time', i) as number;
-const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
-const activityForm: IDataObject = { name, sport_type, start_date_local, elapsed_time };
-if (additionalFields.type) activityForm.type = additionalFields.type;
-if (additionalFields.description) activityForm.description = additionalFields.description;
-if (additionalFields.distance) activityForm.distance = additionalFields.distance;
-if (additionalFields.trainer !== undefined) activityForm.trainer = additionalFields.trainer ? 1 : 0;
-if (additionalFields.commute !== undefined) activityForm.commute = additionalFields.commute ? 1 : 0;
-responseData = await stravaApiRequest.call(this, 'POST', '/activities', {}, {}, activityForm);
-} else if (operation === 'getActivityById') {
-const activityId = this.getNodeParameter('activityId', i) as number;
-const include_all_efforts = this.getNodeParameter('include_all_efforts', i) as boolean;
-responseData = await stravaApiRequest.call(this, 'GET', `/activities/${activityId}`, {}, { include_all_efforts });
-} else if (operation === 'updateActivityById') {
-const activityId = this.getNodeParameter('activityId', i) as number;
-const fields = this.getNodeParameter('body', i) as IDataObject;
-const body: IDataObject = {};
-if (fields.name) body.name = fields.name;
-if (fields.sport_type) body.sport_type = fields.sport_type;
-if (fields.description) body.description = fields.description;
-if (fields.gear_id) body.gear_id = fields.gear_id;
-if (fields.trainer !== undefined) body.trainer = fields.trainer;
-if (fields.commute !== undefined) body.commute = fields.commute;
-if (fields.hide_from_home !== undefined) body.hide_from_home = fields.hide_from_home;
-if (fields.type) body.type = fields.type;
-responseData = await stravaApiRequest.call(this, 'PUT', `/activities/${activityId}`, body);
-} else if (operation === 'getLoggedInAthleteActivities') {
-const filters = this.getNodeParameter('filters', i) as IDataObject;
-const qs: IDataObject = {};
-if (filters.before) qs.before = filters.before;
-if (filters.after) qs.after = filters.after;
-if (filters.page) qs.page = filters.page;
-if (filters.per_page) qs.per_page = filters.per_page;
-responseData = await stravaApiRequest.call(this, 'GET', '/athlete/activities', {}, qs);
-} else if (operation === 'getLapsByActivityId') {
-const activityId = this.getNodeParameter('activityId', i) as number;
-responseData = await stravaApiRequest.call(this, 'GET', `/activities/${activityId}/laps`);
-} else if (operation === 'getZonesByActivityId') {
-const activityId = this.getNodeParameter('activityId', i) as number;
-responseData = await stravaApiRequest.call(this, 'GET', `/activities/${activityId}/zones`);
-} else if (operation === 'getCommentsByActivityId') {
-const activityId = this.getNodeParameter('activityId', i) as number;
-const pagination = this.getNodeParameter('pagination', i) as IDataObject;
-const qs: IDataObject = {};
-if (pagination.page_size) qs.page_size = pagination.page_size;
-if (pagination.after_cursor) qs.after_cursor = pagination.after_cursor;
-responseData = await stravaApiRequest.call(this, 'GET', `/activities/${activityId}/comments`, {}, qs);
-} else if (operation === 'getKudoersByActivityId') {
-const activityId = this.getNodeParameter('activityId', i) as number;
-const pagination = this.getNodeParameter('pagination', i) as IDataObject;
-const qs: IDataObject = {};
-if (pagination.page) qs.page = pagination.page;
-if (pagination.per_page) qs.per_page = pagination.per_page;
-responseData = await stravaApiRequest.call(this, 'GET', `/activities/${activityId}/kudos`, {}, qs);
-}
-} else if (resource === 'segment') {
-if (operation === 'getSegmentById') {
-const segmentId = this.getNodeParameter('segmentId', i) as number;
-responseData = await stravaApiRequest.call(this, 'GET', `/segments/${segmentId}`);
-} else if (operation === 'getLoggedInAthleteStarredSegments') {
-const pagination = this.getNodeParameter('pagination', i) as IDataObject;
-const qs: IDataObject = {};
-if (pagination.page) qs.page = pagination.page;
-if (pagination.per_page) qs.per_page = pagination.per_page;
-responseData = await stravaApiRequest.call(this, 'GET', '/segments/starred', {}, qs);
-} else if (operation === 'starSegment') {
-const segmentId = this.getNodeParameter('segmentId', i) as number;
-const starred = this.getNodeParameter('starred', i) as boolean;
-responseData = await stravaApiRequest.call(this, 'PUT', `/segments/${segmentId}/starred`, {}, {}, { starred: starred });
-} else if (operation === 'exploreSegments') {
-const bounds = this.getNodeParameter('bounds', i) as string;
-if (!bounds || bounds.trim() === '') {
-throw new NodeOperationError(this.getNode(), 'bounds is required for Explore Segments', { itemIndex: i });
-}
-const additionalFilters = this.getNodeParameter('additionalFilters', i) as IDataObject;
-const qs: IDataObject = { bounds };
-if (additionalFilters.activity_type) qs.activity_type = additionalFilters.activity_type;
-if (additionalFilters.min_cat !== undefined) qs.min_cat = additionalFilters.min_cat;
-if (additionalFilters.max_cat !== undefined) qs.max_cat = additionalFilters.max_cat;
-const exploreResponse = await stravaApiRequest.call(this, 'GET', '/segments/explore', {}, qs) as IDataObject;
-responseData = (exploreResponse.segments as IDataObject[]) ?? [];
-}
-} else if (resource === 'segmentEffort') {
-if (operation === 'getEffortsBySegmentId') {
-const segmentId = this.getNodeParameter('segmentId', i) as number;
-const filters = this.getNodeParameter('filters', i) as IDataObject;
-const qs: IDataObject = { segment_id: segmentId };
-if (filters.start_date_local) qs.start_date_local = filters.start_date_local;
-if (filters.end_date_local) qs.end_date_local = filters.end_date_local;
-if (filters.per_page) qs.per_page = filters.per_page;
-responseData = await stravaApiRequest.call(this, 'GET', '/segment_efforts', {}, qs);
-} else if (operation === 'getSegmentEffortById') {
-const segmentEffortId = this.getNodeParameter('segmentEffortId', i) as number;
-responseData = await stravaApiRequest.call(this, 'GET', `/segment_efforts/${segmentEffortId}`);
-}
-} else if (resource === 'club') {
-if (operation === 'getClubById') {
-const clubId = this.getNodeParameter('clubId', i) as number;
-responseData = await stravaApiRequest.call(this, 'GET', `/clubs/${clubId}`);
-} else if (operation === 'getClubMembersById') {
-const clubId = this.getNodeParameter('clubId', i) as number;
-const pagination = this.getNodeParameter('pagination', i) as IDataObject;
-const qs: IDataObject = {};
-if (pagination.page) qs.page = pagination.page;
-if (pagination.per_page) qs.per_page = pagination.per_page;
-responseData = await stravaApiRequest.call(this, 'GET', `/clubs/${clubId}/members`, {}, qs);
-} else if (operation === 'getClubAdminsById') {
-const clubId = this.getNodeParameter('clubId', i) as number;
-const pagination = this.getNodeParameter('pagination', i) as IDataObject;
-const qs: IDataObject = {};
-if (pagination.page) qs.page = pagination.page;
-if (pagination.per_page) qs.per_page = pagination.per_page;
-responseData = await stravaApiRequest.call(this, 'GET', `/clubs/${clubId}/admins`, {}, qs);
-} else if (operation === 'getClubActivitiesById') {
-const clubId = this.getNodeParameter('clubId', i) as number;
-const pagination = this.getNodeParameter('pagination', i) as IDataObject;
-const qs: IDataObject = {};
-if (pagination.page) qs.page = pagination.page;
-if (pagination.per_page) qs.per_page = pagination.per_page;
-responseData = await stravaApiRequest.call(this, 'GET', `/clubs/${clubId}/activities`, {}, qs);
-} else if (operation === 'getLoggedInAthleteClubs') {
-const pagination = this.getNodeParameter('pagination', i) as IDataObject;
-const qs: IDataObject = {};
-if (pagination.page) qs.page = pagination.page;
-if (pagination.per_page) qs.per_page = pagination.per_page;
-responseData = await stravaApiRequest.call(this, 'GET', '/athlete/clubs', {}, qs);
-}
-} else if (resource === 'gear') {
-if (operation === 'getGearById') {
-const gearId = this.getNodeParameter('gearId', i) as string;
-responseData = await stravaApiRequest.call(this, 'GET', `/gear/${gearId}`);
-}
-} else if (resource === 'route') {
-if (operation === 'getRouteById') {
-const routeId = this.getNodeParameter('routeId', i) as number;
-responseData = await stravaApiRequest.call(this, 'GET', `/routes/${routeId}`);
-} else if (operation === 'getRoutesByAthleteId') {
-const athleteId = this.getNodeParameter('athleteId', i) as number;
-const pagination = this.getNodeParameter('pagination', i) as IDataObject;
-const qs: IDataObject = {};
-if (pagination.page) qs.page = pagination.page;
-if (pagination.per_page) qs.per_page = pagination.per_page;
-responseData = await stravaApiRequest.call(this, 'GET', `/athletes/${athleteId}/routes`, {}, qs);
-} else if (operation === 'getRouteAsGPX' || operation === 'getRouteAsTCX') {
-const routeId = this.getNodeParameter('routeId', i) as number;
-const downloadAsBinary = this.getNodeParameter('downloadAsBinary', i) as boolean;
-const isGpx = operation === 'getRouteAsGPX';
-const exportPath = isGpx ? 'export_gpx' : 'export_tcx';
-const fileName = isGpx ? `strava-route-${routeId}.gpx` : `strava-route-${routeId}.tcx`;
-const mimeType = isGpx ? 'application/gpx+xml' : 'application/tcx+xml';
-if (downloadAsBinary) {
-const binaryPropertyName = this.getNodeParameter('binaryPropertyName', i) as string;
-const fileResponse = await this.helpers.httpRequestWithAuthentication.call(
-this,
-'stravaOAuth2Api',
-{
-method: 'GET',
-url: `https://www.strava.com/api/v3/routes/${routeId}/${exportPath}`,
-encoding: 'arraybuffer',
-},
-);
-const binaryData = await this.helpers.prepareBinaryData(
-Buffer.from(fileResponse as ArrayBuffer),
-fileName,
-mimeType,
-);
-returnData.push({
-json: {},
-binary: { [binaryPropertyName]: binaryData },
-pairedItem: { item: i },
-});
-continue;
-} else {
-const xmlResponse = await this.helpers.httpRequestWithAuthentication.call(
-this,
-'stravaOAuth2Api',
-{
-method: 'GET',
-url: `https://www.strava.com/api/v3/routes/${routeId}/${exportPath}`,
-},
-);
-responseData = { fileName, mimeType, data: xmlResponse } as IDataObject;
-}
-}
-} else if (resource === 'upload') {
-if (operation === 'getUploadById') {
-const uploadId = this.getNodeParameter('uploadId', i) as number;
-responseData = await stravaApiRequest.call(this, 'GET', `/uploads/${uploadId}`);
-} else if (operation === 'createUpload') {
-const binaryPropertyName = this.getNodeParameter('binaryPropertyName', i) as string;
-const data_type = this.getNodeParameter('data_type', i) as string;
-if (!data_type) {
-throw new NodeOperationError(this.getNode(), 'Data Type is required to upload an activity file', { itemIndex: i });
-}
-const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
+				if (!handler) {
+					throw new NodeOperationError(
+						this.getNode(),
+						`The resource "${resource}" is not implemented`,
+						{ itemIndex: i },
+					);
+				}
 
-let binaryMeta;
-let fileBuffer: Buffer;
-try {
-binaryMeta = this.helpers.assertBinaryData(i, binaryPropertyName);
-fileBuffer = await this.helpers.getBinaryDataBuffer(i, binaryPropertyName);
-} catch {
-throw new NodeOperationError(
-this.getNode(),
-`No binary data found in field "${binaryPropertyName}". Connect a node that outputs a file (e.g. Read/Write Files from Disk) and make sure the binary property name matches.`,
-{ itemIndex: i },
-);
-}
-if (!fileBuffer || fileBuffer.length === 0) {
-throw new NodeOperationError(this.getNode(), `The file in binary field "${binaryPropertyName}" is empty`, { itemIndex: i });
+				const result = await handler.call(this, operation, i);
+
+				if (result.type === 'items') {
+					returnData.push(...result.items);
+				} else {
+					const outputItems = Array.isArray(result.data) ? result.data : [result.data];
+
+					for (const outputItem of outputItems) {
+						returnData.push({
+							json: outputItem,
+							pairedItem: { item: i },
+						});
+					}
+				}
+
+				if (resource === 'webSession' && isWebWriteOperation(operation) && i < items.length - 1) {
+					const delayMs = this.getNodeParameter('requestDelayMs', i, 1000) as number;
+
+					if (delayMs > 0) {
+						await sleep(delayMs);
+					}
+				}
+			} catch (error) {
+				if (this.continueOnFail()) {
+					returnData.push({
+						json: { error: getErrorMessage(error) },
+						pairedItem: { item: i },
+					});
+					continue;
+				}
+
+				if (error instanceof NodeApiError || error instanceof NodeOperationError) {
+					throw error;
+				}
+
+				if (isMissingCredentialError(error)) {
+					throw new NodeOperationError(
+						this.getNode(),
+						`${getErrorMessage(error)} Re-select or recreate the Strava Web Session API credential on this node, then save the workflow. If you are running n8n-node dev, make sure you are using the same n8n user folder where the credential was created.`,
+						{ itemIndex: i },
+					);
+				}
+
+				throw new NodeApiError(this.getNode(), toNodeApiErrorData(error), {
+					itemIndex: i,
+				});
+			}
+		}
+
+		return [returnData];
+	}
 }
 
-const fd = new FormData();
-fd.append(
-'file',
-new Blob([fileBuffer], { type: binaryMeta.mimeType ?? 'application/octet-stream' }),
-binaryMeta.fileName ?? `upload.${data_type.replace('.gz', '')}`,
-);
-fd.append('data_type', data_type);
-if (additionalFields.activity_type) fd.append('activity_type', String(additionalFields.activity_type));
-if (additionalFields.name) fd.append('name', String(additionalFields.name));
-if (additionalFields.description) fd.append('description', String(additionalFields.description));
-if (additionalFields.external_id) fd.append('external_id', String(additionalFields.external_id));
-if (additionalFields.trainer !== undefined) fd.append('trainer', additionalFields.trainer ? '1' : '0');
-if (additionalFields.commute !== undefined) fd.append('commute', additionalFields.commute ? '1' : '0');
+async function executeAthleteOperation(
+	this: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
+): Promise<OperationExecutionResult> {
+	switch (operation) {
+		case 'getLoggedInAthlete':
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: '/athlete',
+				}),
+			);
 
-responseData = (await this.helpers.httpRequestWithAuthentication.call(
-this,
-'stravaOAuth2Api',
-{
-method: 'POST',
-url: 'https://www.strava.com/api/v3/uploads',
-body: fd,
-},
-)) as IDataObject;
-}
-} else if (resource === 'stream') {
-if (operation === 'getActivityStreams') {
-const activityId = this.getNodeParameter('activityId', i) as number;
-const rawKeys = this.getNodeParameter('keys', i) as string[];
-if (!rawKeys || rawKeys.length === 0) throw new NodeOperationError(this.getNode(), 'At least one stream key must be selected', { itemIndex: i });
-const keys = rawKeys.join(',');
-const key_by_type = this.getNodeParameter('key_by_type', i) as boolean;
-responseData = await stravaApiRequest.call(this, 'GET', `/activities/${activityId}/streams`, {}, { keys, key_by_type });
-} else if (operation === 'getSegmentEffortStreams') {
-const segmentEffortId = this.getNodeParameter('segmentEffortId', i) as number;
-const rawKeys = this.getNodeParameter('keys', i) as string[];
-if (!rawKeys || rawKeys.length === 0) throw new NodeOperationError(this.getNode(), 'At least one stream key must be selected', { itemIndex: i });
-const keys = rawKeys.join(',');
-const key_by_type = this.getNodeParameter('key_by_type', i) as boolean;
-responseData = await stravaApiRequest.call(this, 'GET', `/segment_efforts/${segmentEffortId}/streams`, {}, { keys, key_by_type });
-} else if (operation === 'getSegmentStreams') {
-const segmentId = this.getNodeParameter('segmentId', i) as number;
-const rawKeys = this.getNodeParameter('keys', i) as string[];
-if (!rawKeys || rawKeys.length === 0) throw new NodeOperationError(this.getNode(), 'At least one stream key must be selected', { itemIndex: i });
-const keys = rawKeys.join(',');
-const key_by_type = this.getNodeParameter('key_by_type', i) as boolean;
-responseData = await stravaApiRequest.call(this, 'GET', `/segments/${segmentId}/streams`, {}, { keys, key_by_type });
-} else if (operation === 'getRouteStreams') {
-const routeId = this.getNodeParameter('routeId', i) as number;
-responseData = await stravaApiRequest.call(this, 'GET', `/routes/${routeId}/streams`);
-}
-} else if (resource === 'webSession') {
-responseData = await executeWebSessionOperation.call(this, operation, i);
-} else {
-throw new NodeOperationError(
-this.getNode(),
-`The operation "${operation}" for resource "${resource}" is not yet implemented`,
-{ itemIndex: i },
-);
+		case 'getStats': {
+			const athleteId = this.getNodeParameter('athleteId', itemIndex) as number;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/athletes/{id}/stats', { id: athleteId }),
+				}),
+			);
+		}
+
+		case 'updateLoggedInAthlete': {
+			const weight = this.getNodeParameter('weight', itemIndex) as number;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'PUT',
+					endpoint: '/athlete',
+					form: { weight },
+				}),
+			);
+		}
+
+		case 'getLoggedInAthleteZones':
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: '/athlete/zones',
+				}),
+			);
+
+		default:
+			throw new NodeOperationError(
+				this.getNode(),
+				`The operation "${operation}" for resource "athlete" is not yet implemented`,
+				{ itemIndex },
+			);
+	}
 }
 
-const outputItems = Array.isArray(responseData) ? responseData : [responseData];
-for (const item of outputItems) {
-returnData.push({ json: item as IDataObject, pairedItem: { item: i } });
+async function executeActivityOperation(
+	this: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
+): Promise<OperationExecutionResult> {
+	switch (operation) {
+		case 'createActivity': {
+			const name = this.getNodeParameter('name', itemIndex) as string;
+			const sportType = this.getNodeParameter('sport_type', itemIndex) as string;
+			const startDateLocal = this.getNodeParameter('start_date_local', itemIndex) as string;
+			const elapsedTime = this.getNodeParameter('elapsed_time', itemIndex) as number;
+			const additionalFields = this.getNodeParameter(
+				'additionalFields',
+				itemIndex,
+				{},
+			) as IDataObject;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'POST',
+					endpoint: '/activities',
+					form: compactObject({
+						name,
+						type: additionalFields.type,
+						sport_type: sportType,
+						start_date_local: startDateLocal,
+						elapsed_time: elapsedTime,
+						description: additionalFields.description,
+						distance: additionalFields.distance,
+						trainer:
+							additionalFields.trainer === undefined
+								? undefined
+								: additionalFields.trainer
+									? 1
+									: 0,
+						commute:
+							additionalFields.commute === undefined
+								? undefined
+								: additionalFields.commute
+									? 1
+									: 0,
+					}),
+				}),
+			);
+		}
+
+		case 'getActivityById': {
+			const activityId = this.getNodeParameter('activityId', itemIndex) as number;
+			const includeAllEfforts = this.getNodeParameter(
+				'include_all_efforts',
+				itemIndex,
+			) as boolean;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/activities/{id}', { id: activityId }),
+					qs: { include_all_efforts: includeAllEfforts },
+				}),
+			);
+		}
+
+		case 'updateActivityById': {
+			const activityId = this.getNodeParameter('activityId', itemIndex) as number;
+			const body = this.getNodeParameter('body', itemIndex, {}) as IDataObject;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'PUT',
+					endpoint: buildEndpoint('/activities/{id}', { id: activityId }),
+					body: compactObject({
+						name: body.name,
+						sport_type: body.sport_type,
+						description: body.description,
+						gear_id: body.gear_id,
+						trainer: body.trainer,
+						commute: body.commute,
+						hide_from_home: body.hide_from_home,
+						type: body.type,
+					}),
+				}),
+			);
+		}
+
+		case 'getLoggedInAthleteActivities': {
+			const filters = this.getNodeParameter('filters', itemIndex, {}) as IDataObject;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: '/athlete/activities',
+					qs: compactObject({
+						before: filters.before,
+						after: filters.after,
+						page: filters.page,
+						per_page: filters.per_page,
+					}),
+				}),
+			);
+		}
+
+		case 'getLapsByActivityId': {
+			const activityId = this.getNodeParameter('activityId', itemIndex) as number;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/activities/{id}/laps', { id: activityId }),
+				}),
+			);
+		}
+
+		case 'getZonesByActivityId': {
+			const activityId = this.getNodeParameter('activityId', itemIndex) as number;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/activities/{id}/zones', { id: activityId }),
+				}),
+			);
+		}
+
+		case 'getCommentsByActivityId': {
+			const activityId = this.getNodeParameter('activityId', itemIndex) as number;
+			const pagination = this.getNodeParameter('pagination', itemIndex, {}) as IDataObject;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/activities/{id}/comments', { id: activityId }),
+					qs: compactObject({
+						page: pagination.page,
+						per_page: pagination.per_page,
+						page_size: pagination.page_size,
+						after_cursor: pagination.after_cursor,
+					}),
+				}),
+			);
+		}
+
+		case 'getKudoersByActivityId': {
+			const activityId = this.getNodeParameter('activityId', itemIndex) as number;
+			const pagination = this.getNodeParameter('pagination', itemIndex, {}) as IDataObject;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/activities/{id}/kudos', { id: activityId }),
+					qs: compactObject({
+						page: pagination.page,
+						per_page: pagination.per_page,
+					}),
+				}),
+			);
+		}
+
+		default:
+			throw new NodeOperationError(
+				this.getNode(),
+				`The operation "${operation}" for resource "activity" is not yet implemented`,
+				{ itemIndex },
+			);
+	}
 }
 
-// Throttle write operations between items to avoid hammering Strava
-if (
-resource === 'webSession' &&
-(WEB_WRITE_OPERATIONS as readonly string[]).includes(operation) &&
-i < items.length - 1
-) {
-const delayMs = this.getNodeParameter('requestDelayMs', i, 1000) as number;
-if (delayMs > 0) await sleep(delayMs);
-}
-} catch (error) {
-if (this.continueOnFail()) {
-returnData.push({
-json: { error: (error as Error).message },
-pairedItem: { item: i },
-});
-continue;
+async function executeSegmentOperation(
+	this: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
+): Promise<OperationExecutionResult> {
+	switch (operation) {
+		case 'getSegmentById': {
+			const segmentId = this.getNodeParameter('segmentId', itemIndex) as number;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/segments/{id}', { id: segmentId }),
+				}),
+			);
+		}
+
+		case 'getLoggedInAthleteStarredSegments': {
+			const pagination = this.getNodeParameter('pagination', itemIndex, {}) as IDataObject;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: '/segments/starred',
+					qs: compactObject({
+						page: pagination.page,
+						per_page: pagination.per_page,
+					}),
+				}),
+			);
+		}
+
+		case 'starSegment': {
+			const segmentId = this.getNodeParameter('segmentId', itemIndex) as number;
+			const starred = this.getNodeParameter('starred', itemIndex) as boolean;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'PUT',
+					endpoint: buildEndpoint('/segments/{id}/starred', { id: segmentId }),
+					form: { starred },
+				}),
+			);
+		}
+
+		case 'exploreSegments': {
+			const bounds = toCsvValue(this.getNodeParameter('bounds', itemIndex) as unknown);
+
+			if (bounds === '') {
+				throw new NodeOperationError(
+					this.getNode(),
+					'Bounds is required for Explore Segments.',
+					{ itemIndex },
+				);
+			}
+
+			const additionalFilters = this.getNodeParameter(
+				'additionalFilters',
+				itemIndex,
+				{},
+			) as IDataObject;
+			const response = (await requestJson.call(this, {
+				method: 'GET',
+				endpoint: '/segments/explore',
+				qs: compactObject({
+					bounds,
+					activity_type: additionalFilters.activity_type,
+					min_cat: additionalFilters.min_cat,
+					max_cat: additionalFilters.max_cat,
+				}),
+			})) as IDataObject;
+
+			return jsonResult(((response.segments as IDataObject[]) ?? []) as IDataObject[]);
+		}
+
+		default:
+			throw new NodeOperationError(
+				this.getNode(),
+				`The operation "${operation}" for resource "segment" is not yet implemented`,
+				{ itemIndex },
+			);
+	}
 }
 
-if (error instanceof NodeOperationError) {
-throw error;
+async function executeSegmentEffortOperation(
+	this: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
+): Promise<OperationExecutionResult> {
+	switch (operation) {
+		case 'getEffortsBySegmentId': {
+			const segmentId = this.getNodeParameter('segmentId', itemIndex) as number;
+			const filters = this.getNodeParameter('filters', itemIndex, {}) as IDataObject;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: '/segment_efforts',
+					qs: compactObject({
+						segment_id: segmentId,
+						start_date_local: filters.start_date_local,
+						end_date_local: filters.end_date_local,
+						per_page: filters.per_page,
+					}),
+				}),
+			);
+		}
+
+		case 'getSegmentEffortById': {
+			const segmentEffortId = this.getNodeParameter('segmentEffortId', itemIndex) as number;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/segment_efforts/{id}', { id: segmentEffortId }),
+				}),
+			);
+		}
+
+		default:
+			throw new NodeOperationError(
+				this.getNode(),
+				`The operation "${operation}" for resource "segmentEffort" is not yet implemented`,
+				{ itemIndex },
+			);
+	}
 }
 
-throw new NodeApiError(this.getNode(), error as unknown as JsonObject, {
-itemIndex: i,
-});
-}
+async function executeClubOperation(
+	this: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
+): Promise<OperationExecutionResult> {
+	switch (operation) {
+		case 'getClubById': {
+			const clubId = this.getNodeParameter('clubId', itemIndex) as number;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/clubs/{id}', { id: clubId }),
+				}),
+			);
+		}
+
+		case 'getClubMembersById':
+		case 'getClubAdminsById':
+		case 'getClubActivitiesById': {
+			const clubId = this.getNodeParameter('clubId', itemIndex) as number;
+			const pagination = this.getNodeParameter('pagination', itemIndex, {}) as IDataObject;
+			const suffixByOperation = {
+				getClubActivitiesById: 'activities',
+				getClubAdminsById: 'admins',
+				getClubMembersById: 'members',
+			} as const;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint(`/clubs/{id}/${suffixByOperation[operation]}`, {
+						id: clubId,
+					}),
+					qs: compactObject({
+						page: pagination.page,
+						per_page: pagination.per_page,
+					}),
+				}),
+			);
+		}
+
+		case 'getLoggedInAthleteClubs': {
+			const pagination = this.getNodeParameter('pagination', itemIndex, {}) as IDataObject;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: '/athlete/clubs',
+					qs: compactObject({
+						page: pagination.page,
+						per_page: pagination.per_page,
+					}),
+				}),
+			);
+		}
+
+		default:
+			throw new NodeOperationError(
+				this.getNode(),
+				`The operation "${operation}" for resource "club" is not yet implemented`,
+				{ itemIndex },
+			);
+	}
 }
 
-return [returnData];
+async function executeGearOperation(
+	this: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
+): Promise<OperationExecutionResult> {
+	if (operation !== 'getGearById') {
+		throw new NodeOperationError(
+			this.getNode(),
+			`The operation "${operation}" for resource "gear" is not yet implemented`,
+			{ itemIndex },
+		);
+	}
+
+	const gearId = this.getNodeParameter('gearId', itemIndex) as string;
+
+	return jsonResult(
+		await requestJson.call(this, {
+			method: 'GET',
+			endpoint: buildEndpoint('/gear/{id}', { id: gearId }),
+		}),
+	);
 }
+
+async function executeRouteOperation(
+	this: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
+): Promise<OperationExecutionResult> {
+	switch (operation) {
+		case 'getRouteById': {
+			const routeId = this.getNodeParameter('routeId', itemIndex) as number;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/routes/{id}', { id: routeId }),
+				}),
+			);
+		}
+
+		case 'getRoutesByAthleteId': {
+			const athleteId = this.getNodeParameter('athleteId', itemIndex) as number;
+			const pagination = this.getNodeParameter('pagination', itemIndex, {}) as IDataObject;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/athletes/{id}/routes', { id: athleteId }),
+					qs: compactObject({
+						page: pagination.page,
+						per_page: pagination.per_page,
+					}),
+				}),
+			);
+		}
+
+		case 'getRouteAsGPX':
+		case 'getRouteAsTCX':
+			return await executeRouteExport.call(this, operation, itemIndex);
+
+		default:
+			throw new NodeOperationError(
+				this.getNode(),
+				`The operation "${operation}" for resource "route" is not yet implemented`,
+				{ itemIndex },
+			);
+	}
+}
+
+async function executeRouteExport(
+	this: IExecuteFunctions,
+	operation: 'getRouteAsGPX' | 'getRouteAsTCX',
+	itemIndex: number,
+): Promise<OperationExecutionResult> {
+	const routeId = this.getNodeParameter('routeId', itemIndex) as number;
+	const downloadAsBinary = this.getNodeParameter('downloadAsBinary', itemIndex) as boolean;
+	const isGpx = operation === 'getRouteAsGPX';
+	const exportPath = isGpx ? 'export_gpx' : 'export_tcx';
+	const fileName = isGpx ? `strava-route-${routeId}.gpx` : `strava-route-${routeId}.tcx`;
+	const mimeType = isGpx ? 'application/gpx+xml' : 'application/tcx+xml';
+	const endpoint = buildEndpoint(`/routes/{id}/${exportPath}`, { id: routeId });
+
+	if (downloadAsBinary) {
+		const binaryPropertyName = this.getNodeParameter('binaryPropertyName', itemIndex) as string;
+		const fileBuffer = (await stravaApiRequest.call(this, {
+			method: 'GET',
+			endpoint,
+			responseFormat: 'arrayBuffer',
+		})) as Buffer;
+		const binaryData = await this.helpers.prepareBinaryData(fileBuffer, fileName, mimeType);
+
+		return itemsResult([
+			{
+				json: {},
+				binary: { [binaryPropertyName]: binaryData },
+				pairedItem: { item: itemIndex },
+			},
+		]);
+	}
+
+	// These endpoints return XML, not JSON, so request the raw text explicitly.
+	const xmlData = (await stravaApiRequest.call(this, {
+		method: 'GET',
+		endpoint,
+		responseFormat: 'text',
+	})) as string;
+
+	return jsonResult({
+		data: xmlData,
+		fileName,
+		mimeType,
+	});
+}
+
+async function executeUploadOperation(
+	this: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
+): Promise<OperationExecutionResult> {
+	switch (operation) {
+		case 'getUploadById': {
+			const uploadId = this.getNodeParameter('uploadId', itemIndex) as number;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/uploads/{uploadId}', { uploadId }),
+				}),
+			);
+		}
+
+		case 'createUpload': {
+			const binaryPropertyName = this.getNodeParameter('binaryPropertyName', itemIndex) as string;
+			const dataType = this.getNodeParameter('data_type', itemIndex) as string;
+			const additionalFields = this.getNodeParameter(
+				'additionalFields',
+				itemIndex,
+				{},
+			) as IDataObject;
+
+			if (!dataType) {
+				throw new NodeOperationError(
+					this.getNode(),
+					'Data Type is required to upload an activity file.',
+					{ itemIndex },
+				);
+			}
+
+			let binaryMeta;
+			let fileBuffer: Buffer;
+
+			try {
+				binaryMeta = this.helpers.assertBinaryData(itemIndex, binaryPropertyName);
+				fileBuffer = await this.helpers.getBinaryDataBuffer(itemIndex, binaryPropertyName);
+			} catch {
+				throw new NodeOperationError(
+					this.getNode(),
+					`No binary data found in field "${binaryPropertyName}". Connect a node that outputs a file and make sure the binary property name matches.`,
+					{ itemIndex },
+				);
+			}
+
+			if (fileBuffer.length === 0) {
+				throw new NodeOperationError(
+					this.getNode(),
+					`The file in binary field "${binaryPropertyName}" is empty.`,
+					{ itemIndex },
+				);
+			}
+
+			const formData = new FormData();
+
+			formData.append(
+				'file',
+				new Blob([fileBuffer], {
+					type: binaryMeta.mimeType ?? 'application/octet-stream',
+				}),
+				binaryMeta.fileName ?? `upload.${dataType.replace('.gz', '')}`,
+			);
+			formData.append('data_type', dataType);
+			appendOptionalFormDataValue(formData, 'activity_type', additionalFields.activity_type);
+			appendOptionalFormDataValue(formData, 'name', additionalFields.name);
+			appendOptionalFormDataValue(formData, 'description', additionalFields.description);
+			appendOptionalFormDataValue(formData, 'external_id', additionalFields.external_id);
+			appendOptionalFormDataValue(
+				formData,
+				'trainer',
+				additionalFields.trainer === undefined
+					? undefined
+					: additionalFields.trainer
+						? '1'
+						: '0',
+			);
+			appendOptionalFormDataValue(
+				formData,
+				'commute',
+				additionalFields.commute === undefined
+					? undefined
+					: additionalFields.commute
+						? '1'
+						: '0',
+			);
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'POST',
+					endpoint: '/uploads',
+					body: formData,
+				}),
+			);
+		}
+
+		default:
+			throw new NodeOperationError(
+				this.getNode(),
+				`The operation "${operation}" for resource "upload" is not yet implemented`,
+				{ itemIndex },
+			);
+	}
+}
+
+async function executeStreamOperation(
+	this: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
+): Promise<OperationExecutionResult> {
+	switch (operation) {
+		case 'getActivityStreams': {
+			const activityId = this.getNodeParameter('activityId', itemIndex) as number;
+			const keys = getRequiredCsvParameter.call(this, 'keys', operation, itemIndex);
+			const keyByType = this.getNodeParameter('key_by_type', itemIndex) as boolean;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/activities/{id}/streams', { id: activityId }),
+					qs: {
+						keys,
+						key_by_type: keyByType,
+					},
+				}),
+			);
+		}
+
+		case 'getSegmentEffortStreams': {
+			const segmentEffortId = this.getNodeParameter('segmentEffortId', itemIndex) as number;
+			const keys = getRequiredCsvParameter.call(this, 'keys', operation, itemIndex);
+			const keyByType = this.getNodeParameter('key_by_type', itemIndex) as boolean;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/segment_efforts/{id}/streams', { id: segmentEffortId }),
+					qs: {
+						keys,
+						key_by_type: keyByType,
+					},
+				}),
+			);
+		}
+
+		case 'getSegmentStreams': {
+			const segmentId = this.getNodeParameter('segmentId', itemIndex) as number;
+			const keys = getRequiredCsvParameter.call(this, 'keys', operation, itemIndex);
+			const keyByType = this.getNodeParameter('key_by_type', itemIndex) as boolean;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/segments/{id}/streams', { id: segmentId }),
+					qs: {
+						keys,
+						key_by_type: keyByType,
+					},
+				}),
+			);
+		}
+
+		case 'getRouteStreams': {
+			const routeId = this.getNodeParameter('routeId', itemIndex) as number;
+
+			return jsonResult(
+				await requestJson.call(this, {
+					method: 'GET',
+					endpoint: buildEndpoint('/routes/{id}/streams', { id: routeId }),
+				}),
+			);
+		}
+
+		default:
+			throw new NodeOperationError(
+				this.getNode(),
+				`The operation "${operation}" for resource "stream" is not yet implemented`,
+				{ itemIndex },
+			);
+	}
+}
+
+async function executeWebSessionResourceOperation(
+	this: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
+): Promise<OperationExecutionResult> {
+	return jsonResult(await executeWebSessionOperation.call(this, operation, itemIndex));
+}
+
+async function requestJson(
+	this: IExecuteFunctions,
+	options: StravaApiRequestOptions,
+): Promise<JsonResponse> {
+	return (await stravaApiRequest.call(this, options)) as JsonResponse;
+}
+
+function jsonResult(data: JsonResponse): OperationExecutionResult {
+	return {
+		type: 'json',
+		data,
+	};
+}
+
+function itemsResult(items: INodeExecutionData[]): OperationExecutionResult {
+	return {
+		type: 'items',
+		items,
+	};
+}
+
+async function assertBulkWebWriteAllowed(
+	this: IExecuteFunctions,
+	itemCount: number,
+): Promise<void> {
+	if (itemCount <= 1) {
+		return;
+	}
+
+	for (let itemIndex = 0; itemIndex < itemCount; itemIndex++) {
+		const resource = this.getNodeParameter('resource', itemIndex) as string;
+		const operation = this.getNodeParameter('operation', itemIndex) as string;
+
+		if (resource !== 'webSession' || !isWebWriteOperation(operation)) {
+			continue;
+		}
+
+		const preventBulk = this.getNodeParameter('preventBulk', itemIndex, true) as boolean;
+
+		if (preventBulk) {
+			throw new NodeOperationError(
+				this.getNode(),
+				`Bulk write is disabled for "${operation}". Set "Prevent Bulk Actions" to false to process multiple items.`,
+				{ itemIndex },
+			);
+		}
+	}
+}
+
+function isWebWriteOperation(operation: string): boolean {
+	return (WEB_WRITE_OPERATIONS as readonly string[]).includes(operation);
+}
+
+function getRequiredCsvParameter(
+	this: IExecuteFunctions,
+	parameterName: string,
+	operation: string,
+	itemIndex: number,
+): string {
+	const csvValue = toCsvValue(this.getNodeParameter(parameterName, itemIndex) as unknown);
+
+	if (csvValue === '') {
+		throw new NodeOperationError(
+			this.getNode(),
+			`At least one value must be provided for "${parameterName}" on "${operation}".`,
+			{ itemIndex },
+		);
+	}
+
+	return csvValue;
+}
+
+function appendOptionalFormDataValue(
+	formData: FormData,
+	key: string,
+	value: unknown,
+): void {
+	if (value === undefined || value === null) {
+		return;
+	}
+
+	if (typeof value === 'string' && value.trim() === '') {
+		return;
+	}
+
+	formData.append(key, String(value));
+}
+
+function getErrorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error ?? 'Unknown error');
+}
+
+function isMissingCredentialError(error: unknown): boolean {
+	return /Credential with ID ".+" does not exist for type "stravaWebSessionApi"/.test(
+		getErrorMessage(error),
+	);
+}
+
+function toNodeApiErrorData(error: unknown): JsonObject {
+	if (error instanceof Error) {
+		return { message: error.message } as JsonObject;
+	}
+
+	return { message: String(error ?? 'Unknown error') } as JsonObject;
 }
 
 function executeBuildFollowRequestData(
-this: IExecuteFunctions,
-itemIndex: number,
+	this: IExecuteFunctions,
+	itemIndex: number,
 ): IDataObject[] {
-const mode = this.getNodeParameter('mode', itemIndex) as string;
-const followerId = this.getNodeParameter('followerId', itemIndex) as number;
+	const mode = this.getNodeParameter('mode', itemIndex) as string;
+	const followerId = this.getNodeParameter('followerId', itemIndex) as number;
 
-if (!followerId) {
-throw new NodeOperationError(this.getNode(), 'Follower ID is required.', { itemIndex });
+	if (!followerId) {
+		throw new NodeOperationError(this.getNode(), 'Follower ID is required.', { itemIndex });
+	}
+
+	if (mode === 'follow') {
+		const followingId = this.getNodeParameter('followingId', itemIndex) as number;
+
+		if (!followingId) {
+			throw new NodeOperationError(
+				this.getNode(),
+				'Following ID is required for follow mode.',
+				{ itemIndex },
+			);
+		}
+
+		return [
+			{
+				method: 'POST',
+				endpoint: buildFollowUrl(followerId),
+				body: { follow: { following_id: followingId, follower_id: followerId } },
+			},
+		];
+	}
+
+	if (mode === 'unfollow') {
+		const followId = this.getNodeParameter('followId', itemIndex) as number;
+
+		if (!followId) {
+			throw new NodeOperationError(this.getNode(), 'Follow ID is required for unfollow mode.', {
+				itemIndex,
+			});
+		}
+
+		return [
+			{
+				method: 'DELETE',
+				endpoint: buildUnfollowUrl(followerId, followId),
+			},
+		];
+	}
+
+	throw new NodeOperationError(this.getNode(), `Unknown mode: "${mode}"`, { itemIndex });
 }
 
-if (mode === 'follow') {
-const followingId = this.getNodeParameter('followingId', itemIndex) as number;
-if (!followingId) {
-throw new NodeOperationError(this.getNode(), 'Following ID is required for follow mode.', { itemIndex });
-}
-return [
-{
-method: 'POST',
-endpoint: buildFollowUrl(followerId),
-body: { follow: { following_id: followingId, follower_id: followerId } },
-},
-];
-}
-
-if (mode === 'unfollow') {
-const followId = this.getNodeParameter('followId', itemIndex) as number;
-if (!followId) {
-throw new NodeOperationError(this.getNode(), 'Follow ID is required for unfollow mode.', { itemIndex });
-}
-return [
-{
-method: 'DELETE',
-endpoint: buildUnfollowUrl(followerId, followId),
-},
-];
-}
-
-throw new NodeOperationError(this.getNode(), `Unknown mode: "${mode}"`, { itemIndex });
-}
-
-/** Extracts inner text from an HTML anchor tag, e.g. <a href="...">text</a> → "text" */
 function extractAnchorText(html: string): string {
-const match = /<a[^>]*>([^<]*)<\/a>/i.exec(html);
-return match ? match[1].trim() : html;
+	const match = /<a[^>]*>([^<]*)<\/a>/i.exec(html);
+	return match ? match[1].trim() : html;
 }
 
 async function executeWebSessionOperation(
-this: IExecuteFunctions,
-operation: string,
-itemIndex: number,
+	this: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
 ): Promise<IDataObject[]> {
-// ── Read / utility operations ──────────────────────────────────────────────
-if (operation === 'buildFollowRequestData') {
-return executeBuildFollowRequestData.call(this, itemIndex);
-}
+	if (operation === 'buildFollowRequestData') {
+		return executeBuildFollowRequestData.call(this, itemIndex);
+	}
 
-if (operation === 'getActivityKudosExtended' || operation === 'getActivityGroupAthletes') {
-const activityId = this.getNodeParameter('activityId', itemIndex) as number;
-if (!activityId) {
-throw new NodeOperationError(this.getNode(), 'Activity ID is required', { itemIndex });
-}
+	if (operation === 'testSession') {
+		return [await testStravaWebSession.call(this)];
+	}
 
-const splitIntoItems = this.getNodeParameter('splitIntoItems', itemIndex, true) as boolean;
+	if (operation === 'getActivityKudosExtended' || operation === 'getActivityGroupAthletes') {
+		const activityId = this.getNodeParameter('activityId', itemIndex) as number;
 
-if (operation === 'getActivityKudosExtended') {
-const response = (await stravaWebRequest.call(
-this,
-'GET',
-`/feed/activity/${activityId}/kudos`,
-)) as IDataObject;
+		if (!activityId) {
+			throw new NodeOperationError(this.getNode(), 'Activity ID is required', { itemIndex });
+		}
 
-if (!splitIntoItems) return [response];
+		const splitIntoItems = this.getNodeParameter('splitIntoItems', itemIndex, true) as boolean;
 
-const athletes = (response.athletes ?? []) as IDataObject[];
-return athletes.map((athlete) => ({
-...athlete,
-is_owner: response.is_owner,
-kudosable: response.kudosable,
-}));
-}
+		if (operation === 'getActivityKudosExtended') {
+			const response = (await stravaWebRequest.call(
+				this,
+				'GET',
+				`/feed/activity/${activityId}/kudos`,
+			)) as IDataObject;
 
-// getActivityGroupAthletes
-const response = (await stravaWebRequest.call(
-this,
-'GET',
-`/feed/activity/${activityId}/group_athletes`,
-)) as IDataObject;
+			if (!splitIntoItems) {
+				return [response];
+			}
 
-if (!splitIntoItems) return [response];
+			const athletes = (response.athletes ?? []) as IDataObject[];
 
-const athletes = (response.athletes ?? []) as IDataObject[];
-return athletes.map((athlete) => {
-const activityLink = athlete.activity_link as string | undefined;
-return {
-...athlete,
-source_activity_id: activityId,
-activity_title: activityLink ? extractAnchorText(activityLink) : undefined,
-};
-});
-}
+			return athletes.map((athlete) => ({
+				...athlete,
+				is_owner: response.is_owner,
+				kudosable: response.kudosable,
+			}));
+		}
 
-// ── Write operations ───────────────────────────────────────────────────────
-if (operation === 'followAthleteWeb') {
-return executeFollowAthlete.call(this, itemIndex);
-}
+		const response = (await stravaWebRequest.call(
+			this,
+			'GET',
+			`/feed/activity/${activityId}/group_athletes`,
+		)) as IDataObject;
 
-if (operation === 'kudoActivityWeb') {
-return executeKudoActivity.call(this, itemIndex);
-}
+		if (!splitIntoItems) {
+			return [response];
+		}
 
-if (operation === 'unfollowAthleteWeb') {
-return executeUnfollowAthlete.call(this, itemIndex);
-}
+		const athletes = (response.athletes ?? []) as IDataObject[];
 
-throw new NodeOperationError(
-this.getNode(),
-`The operation "${operation}" for resource "webSession" is not yet implemented`,
-{ itemIndex },
-);
+		return athletes.map((athlete) => {
+			const activityLink = athlete.activity_link as string | undefined;
+
+			return {
+				...athlete,
+				source_activity_id: activityId,
+				activity_title: activityLink ? extractAnchorText(activityLink) : undefined,
+			};
+		});
+	}
+
+	if (operation === 'followAthleteWeb') {
+		return executeFollowAthlete.call(this, itemIndex);
+	}
+
+	if (operation === 'kudoActivityWeb') {
+		return executeKudoActivity.call(this, itemIndex);
+	}
+
+	if (operation === 'unfollowAthleteWeb') {
+		return executeUnfollowAthlete.call(this, itemIndex);
+	}
+
+	throw new NodeOperationError(
+		this.getNode(),
+		`The operation "${operation}" for resource "webSession" is not yet implemented`,
+		{ itemIndex },
+	);
 }
 
 async function executeFollowAthlete(
-this: IExecuteFunctions,
-itemIndex: number,
+	this: IExecuteFunctions,
+	itemIndex: number,
 ): Promise<IDataObject[]> {
-const followerId = this.getNodeParameter('followerId', itemIndex) as number;
-const followingId = this.getNodeParameter('followingId', itemIndex) as number;
-const confirmAction = this.getNodeParameter('confirmAction', itemIndex, false) as boolean;
-const dryRun = this.getNodeParameter('dryRun', itemIndex, false) as boolean;
+	const followerId = this.getNodeParameter('followerId', itemIndex) as number;
+	const followingId = this.getNodeParameter('followingId', itemIndex) as number;
+	const confirmAction = this.getNodeParameter('confirmAction', itemIndex, false) as boolean;
+	const dryRun = this.getNodeParameter('dryRun', itemIndex, false) as boolean;
 
-if (!confirmAction) {
-throw new NodeOperationError(
-this.getNode(),
-'Confirm Follow Action must be enabled to send the follow request.',
-{ itemIndex },
-);
-}
+	if (!confirmAction) {
+		throw new NodeOperationError(
+			this.getNode(),
+			'Confirm Follow Action must be enabled to send the follow request.',
+			{ itemIndex },
+		);
+	}
 
-const url = buildFollowUrl(followerId);
-const body = { follow: { following_id: followingId, follower_id: followerId } };
+	const url = buildFollowUrl(followerId);
+	const body = {
+		'follow[following_id]': followingId,
+		'follow[follower_id]': followerId,
+	};
+	const referer = `https://www.strava.com/athletes/${followingId}`;
 
-if (dryRun) {
-return [{ dryRun: true, method: 'POST', url: `https://www.strava.com${url}`, body }];
-}
+	if (dryRun) {
+		return [{ dryRun: true, method: 'POST', url: `https://www.strava.com${url}`, referer, body }];
+	}
 
-const response = (await stravaWebRequest.call(this, 'POST', url, body as IDataObject)) as IDataObject;
-return [response];
+	const response = (await stravaWebRequest.call(this, 'POST', url, body, {}, { referer })) as IDataObject;
+	return [response];
 }
 
 async function executeKudoActivity(
-this: IExecuteFunctions,
-itemIndex: number,
+	this: IExecuteFunctions,
+	itemIndex: number,
 ): Promise<IDataObject[]> {
-const activityId = this.getNodeParameter('activityId', itemIndex) as number;
-const confirmAction = this.getNodeParameter('confirmAction', itemIndex, false) as boolean;
-const dryRun = this.getNodeParameter('dryRun', itemIndex, false) as boolean;
+	const activityId = this.getNodeParameter('activityId', itemIndex) as number;
+	const confirmAction = this.getNodeParameter('confirmAction', itemIndex, false) as boolean;
+	const dryRun = this.getNodeParameter('dryRun', itemIndex, false) as boolean;
 
-if (!confirmAction) {
-throw new NodeOperationError(
-this.getNode(),
-'Confirm Kudo Action must be enabled to send the kudo request.',
-{ itemIndex },
-);
-}
+	if (!confirmAction) {
+		throw new NodeOperationError(
+			this.getNode(),
+			'Confirm Kudo Action must be enabled to send the kudo request.',
+			{ itemIndex },
+		);
+	}
 
-const url = `/feed/activity/${activityId}/kudo`;
+	const url = `/feed/activity/${activityId}/kudo`;
 
-if (dryRun) {
-return [{ dryRun: true, method: 'POST', url: `https://www.strava.com${url}`, body: {} }];
-}
+	if (dryRun) {
+		return [
+			{
+				dryRun: true,
+				method: 'POST',
+				url: `https://www.strava.com${url}`,
+				referer: `https://www.strava.com/activities/${activityId}`,
+				body: {},
+			},
+		];
+	}
 
-const response = (await stravaWebRequest.call(this, 'POST', url)) as IDataObject;
+	const response = (await stravaWebRequest.call(this, 'POST', url, {}, {}, {
+		referer: `https://www.strava.com/activities/${activityId}`,
+	})) as IDataObject;
 
-// Strava may return an empty body (200/204) for a successful kudo
-if (Object.keys(response).length === 0) {
-return [{ success: true, activityId, operation: 'kudoActivityWeb' }];
-}
+	if (Object.keys(response).length === 0) {
+		return [{ success: true, activityId, operation: 'kudoActivityWeb' }];
+	}
 
-return [response];
+	return [response];
 }
 
 async function executeUnfollowAthlete(
-this: IExecuteFunctions,
-itemIndex: number,
+	this: IExecuteFunctions,
+	itemIndex: number,
 ): Promise<IDataObject[]> {
-const followerId = this.getNodeParameter('followerId', itemIndex) as number;
-const followId = this.getNodeParameter('followId', itemIndex) as number;
-const confirmAction = this.getNodeParameter('confirmAction', itemIndex, false) as boolean;
-const dryRun = this.getNodeParameter('dryRun', itemIndex, false) as boolean;
+	const followerId = this.getNodeParameter('followerId', itemIndex) as number;
+	const followId = this.getNodeParameter('followId', itemIndex) as number;
+	const confirmAction = this.getNodeParameter('confirmAction', itemIndex, false) as boolean;
+	const dryRun = this.getNodeParameter('dryRun', itemIndex, false) as boolean;
 
-if (!confirmAction) {
-throw new NodeOperationError(
-this.getNode(),
-'Confirm Unfollow Action must be enabled to send the unfollow request.',
-{ itemIndex },
-);
+	if (!confirmAction) {
+		throw new NodeOperationError(
+			this.getNode(),
+			'Confirm Unfollow Action must be enabled to send the unfollow request.',
+			{ itemIndex },
+		);
+	}
+
+	const url = buildUnfollowUrl(followerId, followId);
+	const referer = `https://www.strava.com/athletes/${followerId}`;
+
+	if (dryRun) {
+		return [{ dryRun: true, method: 'DELETE', url: `https://www.strava.com${url}`, referer, body: {} }];
+	}
+
+	const response = (await stravaWebRequest.call(this, 'DELETE', url, {}, {}, { referer })) as IDataObject;
+	return [response ?? {}];
 }
 
-const url = buildUnfollowUrl(followerId, followId);
-
-if (dryRun) {
-return [{ dryRun: true, method: 'DELETE', url: `https://www.strava.com${url}`, body: {} }];
-}
-
-const response = (await stravaWebRequest.call(this, 'DELETE', url)) as IDataObject;
-return [response ?? {}];
-}
-
-/**
- * Builds the POST follow URL.  Isolated so the path can be changed in one
- * place if Strava changes the route.
- */
 function buildFollowUrl(followerId: number): string {
-return `/athletes/${followerId}/follows`;
+	return buildEndpoint('/athletes/{followerId}/follows', { followerId });
 }
 
-/**
- * Builds the DELETE unfollow URL.  The first segment is followerId (the
- * authenticated user), the second is followId (the follow relationship ID).
- */
 function buildUnfollowUrl(followerId: number, followId: number): string {
-return `/athletes/${followerId}/follows/${followId}`;
+	return buildEndpoint('/athletes/{followerId}/follows/{followId}', {
+		followerId,
+		followId,
+	});
 }
