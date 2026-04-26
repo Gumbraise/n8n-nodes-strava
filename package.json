@@ -62,6 +62,7 @@
 		"dist/**/*.json",
 		"dist/**/*.svg",
 		"README.md",
+		"LICENSE.md",
 		"CHANGELOG.md"
 	],
 	"engines": {
