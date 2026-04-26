@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-strava",
-	"version": "0.0.0-development.0",
+	"version": "0.0.0-development.1",
 	"description": "n8n community node for automating Strava API workflows, including athletes, activities, segments, routes, clubs, streams, uploads, and web-session actions.",
 	"license": "MIT",
 	"homepage": "https://github.com/Gumbraise/n8n-nodes-strava#readme",
