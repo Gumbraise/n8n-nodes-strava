@@ -9,7 +9,7 @@ import type {
 } from 'n8n-workflow';
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
-import { stravaApiRequest } from './GenericFunctions';
+import { buildEndpoint, stravaApiRequest } from './GenericFunctions';
 
 export class StravaTrigger implements INodeType {
 	description: INodeTypeDescription = {
@@ -130,9 +130,10 @@ export class StravaTrigger implements INodeType {
 
 				const webhooks = (await stravaApiRequest.call(
 					this,
-					'GET',
-					'/push_subscriptions',
-					{},
+					{
+						method: 'GET',
+						endpoint: '/push_subscriptions',
+					},
 				)) as IDataObject[];
 
 				for (const webhook of webhooks) {
@@ -158,9 +159,11 @@ export class StravaTrigger implements INodeType {
 				try {
 					responseData = (await stravaApiRequest.call(
 						this,
-						'POST',
-						'/push_subscriptions',
-						body,
+						{
+							method: 'POST',
+							endpoint: '/push_subscriptions',
+							body,
+						},
 					)) as IDataObject;
 				} catch (error) {
 					const cause = (error as { cause?: { error?: { errors?: IDataObject[] } } })?.cause;
@@ -171,24 +174,31 @@ export class StravaTrigger implements INodeType {
 								const options = this.getNodeParameter('options') as IDataObject;
 								const webhooks = (await stravaApiRequest.call(
 									this,
-									'GET',
-									'/push_subscriptions',
-									{},
+									{
+										method: 'GET',
+										endpoint: '/push_subscriptions',
+									},
 								)) as IDataObject[];
 
 								if (options.deleteIfExist) {
 									await stravaApiRequest.call(
 										this,
-										'DELETE',
-										`/push_subscriptions/${webhooks[0].id}`,
+										{
+											method: 'DELETE',
+											endpoint: buildEndpoint('/push_subscriptions/{id}', {
+												id: webhooks[0].id as string | number,
+											}),
+										},
 									);
 									responseData = (await stravaApiRequest.call(
 										this,
-										'POST',
-										'/push_subscriptions',
 										{
-											callback_url: webhookUrl,
-											verify_token: randomBytes(20).toString('hex'),
+											method: 'POST',
+											endpoint: '/push_subscriptions',
+											body: {
+												callback_url: webhookUrl,
+												verify_token: randomBytes(20).toString('hex'),
+											},
 										},
 									)) as IDataObject;
 								} else {
@@ -215,8 +225,12 @@ export class StravaTrigger implements INodeType {
 					try {
 						await stravaApiRequest.call(
 							this,
-							'DELETE',
-							`/push_subscriptions/${webhookData.webhookId}`,
+							{
+								method: 'DELETE',
+								endpoint: buildEndpoint('/push_subscriptions/{id}', {
+									id: webhookData.webhookId as string | number,
+								}),
+							},
 						);
 					} catch {
 						return false;
@@ -253,9 +267,12 @@ export class StravaTrigger implements INodeType {
 		if (resolveData && body.aspect_type !== 'delete') {
 			const endpoint =
 				body.object_type === 'activity'
-					? `/activities/${body.object_id}`
-					: `/athletes/${body.object_id}/stats`;
-			body.object_data = await stravaApiRequest.call(this, 'GET', endpoint);
+					? buildEndpoint('/activities/{id}', { id: body.object_id as string | number })
+					: buildEndpoint('/athletes/{id}/stats', { id: body.object_id as string | number });
+			body.object_data = await stravaApiRequest.call(this, {
+				method: 'GET',
+				endpoint,
+			});
 		}
 
 		return {
