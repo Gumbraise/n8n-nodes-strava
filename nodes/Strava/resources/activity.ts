@@ -321,6 +321,20 @@ export const activityFields: INodeProperties[] = [
 		},
 		options: [
 			{
+				displayName: 'Page (Deprecated)',
+				name: 'page',
+				type: 'number',
+				default: 1,
+				description: 'Deprecated by Strava. Prefer After Cursor when available.',
+			},
+			{
+				displayName: 'Per Page (Deprecated)',
+				name: 'per_page',
+				type: 'number',
+				default: 30,
+				description: 'Deprecated by Strava. Prefer Page Size when available.',
+			},
+			{
 				displayName: 'After Cursor',
 				name: 'after_cursor',
 				type: 'string',
