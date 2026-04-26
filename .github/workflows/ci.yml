@@ -6,9 +6,12 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 # Cancel in-progress runs for the same branch/PR to avoid wasting CI minutes.
 concurrency:
-  group: ci-$
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -21,14 +24,20 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
         run: 'npm ci'
+
+      - name: Run typecheck
+        run: 'npm run typecheck'
 
       - name: Run lint
         run: 'npm run lint'
 
       - name: Run build
         run: 'npm run build'
+
+      - name: Verify package contents
+        run: 'npm run pack:dry'
