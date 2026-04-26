@@ -1,32 +1,75 @@
 {
 	"name": "n8n-nodes-strava",
 	"version": "0.1.0",
-	"description": "n8n community node for the Strava API",
+	"description": "n8n community node for automating Strava API workflows, including athletes, activities, segments, routes, clubs, streams, uploads, and web-session actions.",
 	"license": "MIT",
-	"homepage": "",
+	"homepage": "https://github.com/Gumbraise/n8n-nodes-strava#readme",
+	"bugs": {
+		"url": "https://github.com/Gumbraise/n8n-nodes-strava/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/Gumbraise/n8n-nodes-strava.git"
+	},
 	"keywords": [
-		"n8n-community-node-package"
+		"n8n-community-node-package",
+		"n8n",
+		"n8n-node",
+		"n8n-nodes",
+		"strava",
+		"strava-api",
+		"oauth2",
+		"fitness",
+		"running",
+		"cycling",
+		"activities",
+		"athletes",
+		"segments",
+		"routes",
+		"clubs",
+		"streams",
+		"uploads",
+		"automation",
+		"workflow",
+		"integration"
 	],
 	"author": {
 		"name": "Gumbraise",
 		"email": "34947108+Gumbraise@users.noreply.github.com"
 	},
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/Gumbraise/n8n-nodes-strava.git"
-	},
+	"maintainers": [
+		{
+			"name": "Gumbraise",
+			"email": "34947108+Gumbraise@users.noreply.github.com"
+		}
+	],
 	"scripts": {
 		"build": "n8n-node build",
 		"build:watch": "tsc --watch",
 		"dev": "n8n-node dev",
 		"lint": "n8n-node lint",
 		"lint:fix": "n8n-node lint --fix",
+		"pack:dry": "npm pack --dry-run",
+		"prepublishOnly": "n8n-node prerelease",
 		"release": "n8n-node release",
-		"prepublishOnly": "n8n-node prerelease"
+		"typecheck": "tsc --noEmit"
 	},
 	"files": [
-		"dist"
+		"dist/**/*.d.ts",
+		"dist/**/*.js",
+		"dist/**/*.js.map",
+		"dist/**/*.json",
+		"dist/**/*.svg",
+		"README.md",
+		"CHANGELOG.md"
 	],
+	"engines": {
+		"node": ">=20.19.0"
+	},
+	"packageManager": "npm@11.6.2",
+	"publishConfig": {
+		"access": "public"
+	},
 	"n8n": {
 		"n8nNodesApiVersion": 1,
 		"strict": true,
