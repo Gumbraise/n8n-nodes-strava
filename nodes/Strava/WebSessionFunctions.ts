@@ -18,6 +18,8 @@ const LOGIN_PAGE_PATTERNS = [
 	/name=["']password["']/i,
 ];
 
+type StravaWebContext = IExecuteFunctions | IHookFunctions | IWebhookFunctions;
+
 interface StravaWebCredentials {
 	sessionCookie: string;
 	csrfToken?: string;
@@ -36,13 +38,13 @@ interface StravaWebRequestOptions {
 }
 
 export async function testStravaWebSession(
-	this: IExecuteFunctions | IHookFunctions | IWebhookFunctions,
+	this: StravaWebContext,
 ): Promise<IDataObject> {
 	const credentials = (await this.getCredentials(
 		'stravaWebSessionApi',
 	)) as unknown as StravaWebCredentials;
 	const userAgent = credentials.userAgent ?? 'Mozilla/5.0';
-	const response = (await this.helpers.httpRequest({
+	const response = (await webSessionHttpRequest.call(this, {
 		method: 'GET',
 		baseURL: STRAVA_WEB_BASE_URL,
 		url: '/dashboard',
@@ -90,7 +92,7 @@ export async function testStravaWebSession(
  *   <meta name="csrf-token" content="...">
  */
 async function fetchCsrfToken(
-	context: IExecuteFunctions | IHookFunctions | IWebhookFunctions,
+	context: StravaWebContext,
 	cookie: string,
 	userAgent: string,
 ): Promise<string | undefined> {
@@ -118,7 +120,7 @@ async function fetchCsrfToken(
  * cookie.  Credentials are never included in thrown errors.
  */
 export async function stravaWebRequest(
-	this: IExecuteFunctions | IHookFunctions | IWebhookFunctions,
+	this: StravaWebContext,
 	method: IHttpRequestMethods,
 	endpoint: string,
 	body: IDataObject = {},
@@ -198,7 +200,7 @@ export async function stravaWebRequest(
 
 	let raw: string;
 	try {
-		raw = (await this.helpers.httpRequest(options)) as string;
+		raw = (await webSessionHttpRequest.call(this, options)) as string;
 	} catch (error) {
 		// Sanitize: never expose headers (which contain the session cookie) in the error.
 		// Map common HTTP status codes to actionable messages.
@@ -260,6 +262,13 @@ export async function stravaWebRequest(
 	}
 
 	return raw as unknown as IDataObject | IDataObject[];
+}
+
+async function webSessionHttpRequest(
+	this: StravaWebContext,
+	options: IHttpRequestOptions,
+): Promise<unknown> {
+	return await this.helpers.httpRequest(options);
 }
 
 function sanitizeCookie(cookie: string): string {

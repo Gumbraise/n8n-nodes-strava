@@ -229,10 +229,17 @@ async function requestWithAuthentication(
 			method,
 		);
 
-		return await this.helpers.httpRequest(withClientCredentials);
+		return await requestWithoutAuthentication.call(this, withClientCredentials);
 	}
 
 	return await this.helpers.httpRequestWithAuthentication.call(this, 'stravaOAuth2Api', options);
+}
+
+async function requestWithoutAuthentication(
+	this: StravaContext,
+	options: IHttpRequestOptions,
+): Promise<unknown> {
+	return await this.helpers.httpRequest(options);
 }
 
 function appendClientCredentials(

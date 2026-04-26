@@ -40,11 +40,11 @@ type OperationExecutionResult =
 	| {
 			type: 'items';
 			items: INodeExecutionData[];
-	  }
+		}
 	| {
 			type: 'json';
 			data: JsonResponse;
-	  };
+		};
 
 type ResourceOperationHandler = (
 	this: IExecuteFunctions,
