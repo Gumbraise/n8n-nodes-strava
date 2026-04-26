@@ -50,8 +50,9 @@
 		"lint": "n8n-node lint",
 		"lint:fix": "n8n-node lint --fix",
 		"pack:dry": "npm pack --dry-run",
-		"prepublishOnly": "n8n-node prerelease",
-		"release": "n8n-node release",
+		"prepublishOnly": "tsc --noEmit",
+		"release": "semantic-release",
+		"release:dry": "semantic-release --dry-run",
 		"typecheck": "tsc --noEmit"
 	},
 	"files": [
